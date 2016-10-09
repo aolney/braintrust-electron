@@ -15,6 +15,7 @@ limitations under the License.*)
 #r "../node_modules/fable-core/Fable.Core.dll"
 #load "../node_modules/fable-import-react/Fable.Import.React.fs"
 #load "../node_modules/fable-import-react/Fable.Helpers.React.fs"
+#load "../node_modules/fable-import-electron/Fable.Import.Electron.fs"
 #load "../node_modules/fable-react-toolbox/Fable.Helpers.ReactToolbox.fs"
 #load "../node_modules/fable-elmish/elmish.fs"
 
@@ -23,6 +24,7 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Fable.Import
 open Fable.Import.Node
+open Fable.Import.Electron
 open Fable.Helpers.ReactToolbox
 open Fable.Helpers.React.Props
 open Elmish
@@ -82,62 +84,11 @@ let update (msg:Msg) (model:Model)  =
 
 
 // VIEW
-
-// Monolithic version
-let view model dispatch =
-  let onClick msg =
-    OnClick <| fun _ -> msg |> dispatch 
-
-  R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "40% 60%" ] ]
-    [
-        R.div [ Style [ GridArea "1 / 1 / 2 / 1" ] ] //row start / col start / row end / col end
-          [
-            RT.appBar [ AppBarProps.LeftIcon "grade" ] []
-            RT.tabs [ Index model.tabIndex; TabsProps.OnChange ( TabIndex >> dispatch ) ] [
-                RT.tab [ Label "Buttons" ] [
-                    R.section [] [
-                        RT.button [ Icon "help"; Label "Help"; ButtonProps.Primary true; Raised true ] []
-                        RT.button [ Icon "home"; Label "Home"; Raised true ] []
-                        RT.button [ Icon "rowing"; Floating true ] []
-                        RT.iconButton [ Icon "power_settings_new"; IconButtonProps.Primary true ] []
-                    ]
-                ]
-                RT.tab [ Label "Inputs" ] [
-                    R.section [] [
-                        RT.input [ Type "text"; Label "Information"; InputProps.Value model.info; InputProps.OnChange ( Info >> dispatch ) ] []
-                        RT.checkbox [ Label "Check me"; Checked model.isChecked; CheckboxProps.OnChange ( Check >> dispatch ) ] []
-                        RT.switch [ Label "Switch me"; Checked model.isChecked; SwitchProps.OnChange(  Check >> dispatch ) ] []
-                    ]
-                ]
-                RT.tab [ Label "List" ] [
-                    RT.list [] [
-                        RT.listSubHeader [ Caption "Listing" ] []
-                        RT.listDivider [] []
-                        RT.listItem [ Caption "Item 1"; Legend "Keeps it simple" ] []
-                        RT.listDivider [] []
-                        RT.listItem [ Caption "Item 2"; Legend "Turns it up a notch"; RightIcon <| Case2("star") ] []
-                        RT.listDivider [] []
-                        RT.listItem [ Caption "Item 3"; Legend "Turns it up a notch 2"; RightIcon <| Case2("star") ] []
-                        RT.listDivider [] []
-                        RT.listItem [ Caption "Item 4"; Legend "Turns it up a notch 3"; RightIcon <| Case2("star") ] []
-                    ]
-                ]
-            ]
-          ]
-        R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ]
-        //R.div [ Style [ GridColumnStart "2"; GridColumnEnd "2" ] ]
-          [
-            RT.button [ Icon "add"; Label "Add"; Raised true; onClick Increment ] []
-            R.div [] [ unbox (string model.count) ]
-            R.div [] [ unbox (string model.tabIndex) ]
-            R.div [] [ unbox (string model.isChecked) ]
-            R.div [] [ unbox (string model.info) ]
-            RT.button [ Icon "remove"; Label "Remove"; Raised true; onClick Decrement ] []
-          ]
-    ]
-
-//Example view that is more modular, splitting into major grid elements
-let viewLeftPane model dispatch =
+let testView =
+    let wv = createEmpty<IWebViewElement>
+    ()
+    
+let viewLeftPaneOrg model dispatch =
     let onClick msg =
         OnClick <| fun _ -> msg |> dispatch 
     
@@ -187,15 +138,14 @@ let viewRightPane model dispatch =
         R.div [] [ unbox (string model.tabIndex) ]
         R.div [] [ unbox (string model.isChecked) ]
         R.div [] [ unbox (string model.info) ]
+        R.p [] [ unbox "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."]
         RT.button [ Icon "remove"; Label "Remove"; Raised true; onClick Decrement ] []
         ]
 
 let viewMain model dispatch =
-    R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "40% 60%" ] ]
-        [
-            viewLeftPane model dispatch
-            viewRightPane model dispatch
-        ]
+    //viewLeftPane model dispatch
+    viewRightPane model dispatch
+
 
 // App
 let program = 

@@ -11,6 +11,7 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.*)
+
 #r "../node_modules/fable-core/Fable.Core.dll"
 #load "../node_modules/fable-import-electron/Fable.Import.Electron.fs"
 
@@ -32,7 +33,7 @@ let createMainWindow () =
     let webPreferences = createEmpty<WebPreferences>
     webPreferences.experimentalFeatures <- Some true
     options.webPreferences <- Some webPreferences
-
+ 
     let window = electron.BrowserWindow.Create(options)
 
     // Load the index.html of the app.
