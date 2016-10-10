@@ -34,6 +34,12 @@ module RT = Fable.Helpers.ReactToolbox
 
 open R.Props
 
+type RCom = React.ComponentClass<obj>
+let WebView = importDefault<RCom> "react-electron-webview"
+let inline (!!) x = createObj x
+let inline (=>) x y = x ==> y
+
+
 // Local storage interface
 module S =
     let private STORAGE_KEY = "fable-electron-elmish-react-reacttoolbox"
@@ -84,10 +90,26 @@ let update (msg:Msg) (model:Model)  =
 
 
 // VIEW
-let testView =
-    let wv = createEmpty<IWebViewElement>
-    ()
-    
+
+let viewLeftPane model dispatch =
+    //R.div [ Style [ GridArea "1 / 1 / 2 / 1" ] ] [
+    //R.div [ Style [ CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%"); Flex (U2.Case2 "1 1 auto")  ] ] [
+        R.from WebView
+            !!["src" => "http://stackoverflow.com/questions/21103622/auto-resize-image-in-css-flexbox-layout-and-keeping-aspect-ratio";
+               (* "style" => "GridArea:1 / 1 / 2 / 1";*)
+(*               
+
+               "minheight" => "800";
+               "border" => "none";
+               "display" => "block";
+                "width" => "33vw";
+                "height" => "100vh";*)
+                "autosize" => "on";
+                "minwidth" => "600";
+                "flex" => "1 1 auto";
+                ] []
+    //]
+
 let viewLeftPaneOrg model dispatch =
     let onClick msg =
         OnClick <| fun _ -> msg |> dispatch 
@@ -131,8 +153,8 @@ let viewRightPane model dispatch =
     let onClick msg =
         OnClick <| fun _ -> msg |> dispatch 
 
-    R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ]
-        [
+    //R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
+    R.div [ Style [  Flex (U2.Case2 "1 1 auto")  ] ] [
         RT.button [ Icon "add"; Label "Add"; Raised true; onClick Increment ] []
         R.div [] [ unbox (string model.count) ]
         R.div [] [ unbox (string model.tabIndex) ]
@@ -140,11 +162,16 @@ let viewRightPane model dispatch =
         R.div [] [ unbox (string model.info) ]
         R.p [] [ unbox "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."]
         RT.button [ Icon "remove"; Label "Remove"; Raised true; onClick Decrement ] []
-        ]
+    ]
+
+
 
 let viewMain model dispatch =
-    //viewLeftPane model dispatch
-    viewRightPane model dispatch
+    //R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "40% 60%" ] ] [
+    R.div [ Style [ Display "flex"; FlexDirection "row";  CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
+        viewLeftPane model dispatch
+        viewRightPane model dispatch
+    ]
 
 
 // App
@@ -168,9 +195,9 @@ type App() as this =
         this.props <- true
 
     member this.render() =
-        //two options to look at: a monolithic view or a view that has been partially deaggregated
-        //view this.state dispatch
-        viewMain this.state dispatch
+       viewMain this.state dispatch
+
+
 
 ReactDom.render(
         R.com<App,_,_> () [],

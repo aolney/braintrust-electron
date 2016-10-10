@@ -26,8 +26,8 @@ let mutable mainWindow: BrowserWindow option = Option.None
 
 let createMainWindow () =
     let options = createEmpty<BrowserWindowOptions>
-    options.width <- Some 800.
-    options.height <- Some 600.
+    options.width <- Some 1440.
+    options.height <- Some 768.
     
     //we need this to make grid work
     let webPreferences = createEmpty<WebPreferences>
