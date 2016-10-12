@@ -92,29 +92,19 @@ let update (msg:Msg) (model:Model)  =
 // VIEW
 
 let viewLeftPane model dispatch =
-    //R.div [ Style [ GridArea "1 / 1 / 2 / 1" ] ] [
-    //R.div [ Style [ CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%"); Flex (U2.Case2 "1 1 auto")  ] ] [
-        R.from WebView
-            !!["src" => "http://stackoverflow.com/questions/21103622/auto-resize-image-in-css-flexbox-layout-and-keeping-aspect-ratio";
-               (* "style" => "GridArea:1 / 1 / 2 / 1";*)
-(*               
-
-               "minheight" => "800";
-               "border" => "none";
-               "display" => "block";
-                "width" => "33vw";
-                "height" => "100vh";*)
-                "autosize" => "on";
-                "minwidth" => "600";
-                "flex" => "1 1 auto";
-                ] []
-    //]
-
+    R.div [ Style [ GridArea "1 / 1 / 3 / 1"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");  ] ] [
+            R.from WebView
+                !!["src" => "http://stackoverflow.com/questions/21103622/auto-resize-image-in-css-flexbox-layout-and-keeping-aspect-ratio";
+                    "height" => "100%";
+                    "style" => [CSSProp.Height "100%"];
+                    ][]
+        
+    ]
 let viewLeftPaneOrg model dispatch =
     let onClick msg =
         OnClick <| fun _ -> msg |> dispatch 
     
-    R.div [ Style [ GridArea "1 / 1 / 2 / 1" ] ] //row start / col start / row end / col end    
+    R.div [ Style [ GridArea "1 / 1 / 2 / 1";  ] ] //row start / col start / row end / col end    
         [
             RT.appBar [ AppBarProps.LeftIcon "grade" ] []
             RT.tabs [ Index model.tabIndex; TabsProps.OnChange ( TabIndex >> dispatch ) ] [
@@ -153,8 +143,8 @@ let viewRightPane model dispatch =
     let onClick msg =
         OnClick <| fun _ -> msg |> dispatch 
 
-    //R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
-    R.div [ Style [  Flex (U2.Case2 "1 1 auto")  ] ] [
+    R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
+    //R.div [ Style [  Flex (U2.Case2 "1 1 auto")  ] ] [
         RT.button [ Icon "add"; Label "Add"; Raised true; onClick Increment ] []
         R.div [] [ unbox (string model.count) ]
         R.div [] [ unbox (string model.tabIndex) ]
@@ -167,8 +157,8 @@ let viewRightPane model dispatch =
 
 
 let viewMain model dispatch =
-    //R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "40% 60%" ] ] [
-    R.div [ Style [ Display "flex"; FlexDirection "row";  CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
+    //R.div [ Style [ Display "flex"; FlexDirection "row";  CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
+    R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "40% 60%"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%"); ] ] [
         viewLeftPane model dispatch
         viewRightPane model dispatch
     ]
