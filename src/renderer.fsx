@@ -15,7 +15,7 @@ limitations under the License.*)
 #r "../node_modules/fable-core/Fable.Core.dll"
 #load "../node_modules/fable-import-react/Fable.Import.React.fs"
 #load "../node_modules/fable-import-react/Fable.Helpers.React.fs"
-#load "../node_modules/fable-import-electron/Fable.Import.Electron.fs"
+//#load "../node_modules/fable-import-electron/Fable.Import.Electron.fs"
 #load "../node_modules/fable-react-toolbox/Fable.Helpers.ReactToolbox.fs"
 #load "../node_modules/fable-elmish/elmish.fs"
 
@@ -24,18 +24,18 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Fable.Import
 open Fable.Import.Node
-open Fable.Import.Electron
+//open Fable.Import.Electron
 open Fable.Helpers.ReactToolbox
 open Fable.Helpers.React.Props
 open Elmish
 
+let [<Literal>] ENTER_KEY = 13.
+
 module R = Fable.Helpers.React
 module RT = Fable.Helpers.ReactToolbox
 
-open R.Props
-
 type RCom = React.ComponentClass<obj>
-let WebView = importDefault<RCom> "react-electron-webview"
+let WebView = importDefault<RCom> "react-electron-webview" 
 let inline (!!) x = createObj x
 let inline (=>) x y = x ==> y
 
@@ -58,51 +58,100 @@ type Model = {
     tabIndex : int
     isChecked : bool
     info : string
+    url : string
     }
 
 
 type Msg =
-  | Increment
-  | Decrement
-  | TabIndex of int
-  | Check of bool
-  | Info of string
+    | Increment
+    | Decrement
+    | TabIndex of int
+    | Check of bool
+    | Info of string
+    | Url of string
+    | Navigate
+    | NavigateForward
+    | NavigateBackward
+    | Refresh
+    | Close
+    | UpdateNavigationUrl of string
 
-let emptyModel =  { count = 0; tabIndex = 0; isChecked = true; info = "something here" }
+let emptyModel =  { count = 0; tabIndex = 0; isChecked = true; url = "http://www.google.com"; info = "something here" }
 
+//Initialize app and return initial model
 let init = function
-  | Some savedModel -> savedModel
-  | _ -> emptyModel
+    | Some savedModel -> savedModel
+    | _ -> emptyModel
+
 
 // UPDATE
 let update (msg:Msg) (model:Model)  =
-  match msg with
-  | Increment ->
-      { model with count = model.count + 1 }
-  | Decrement ->
-      { model with count = model.count - 1 }
-  | TabIndex(index) -> 
-      { model with tabIndex = index}
-  | Check(check) ->
+    let webView = Browser.document.getElementById("webview")
+    match msg with
+    | Increment ->
+        { model with count = model.count + 1 }
+    | Decrement ->
+        { model with count = model.count - 1 }
+    | TabIndex(index) -> 
+        { model with tabIndex = index}
+    | Check(check) ->
         { model with isChecked = check}
-  | Info(i) ->
+    | Info(i) ->
         { model with info = i}
+    | Url(i) ->
+        { model with url = i}
+    | Navigate ->
+        webView?loadURL( model.url ) |> ignore
+        model
+    | NavigateForward ->
+        webView?goForward() |> ignore
+        model
+    | NavigateBackward ->
+        webView?goBack() |> ignore
+        model
+    | Refresh ->
+        webView?reload() |> ignore
+        model
+    | Close ->
+        webView?stop() |> ignore
+        model
+    | UpdateNavigationUrl(i) ->
+        { model with url = i}
+
 
 
 // VIEW
 
+let internal onEnter msg dispatch =
+    function 
+    | (ev:React.KeyboardEvent) when ev.keyCode = ENTER_KEY ->
+        ev.preventDefault() 
+        dispatch msg
+    | _ -> ()
+    |> OnKeyDown
+
+let internal onClick msg dispatch =
+    OnClick <| fun _ -> msg |> dispatch 
+
 let viewLeftPane model dispatch =
     R.div [ Style [ GridArea "1 / 1 / 3 / 1"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");  ] ] [
-            R.from WebView
-                !!["src" => "http://stackoverflow.com/questions/21103622/auto-resize-image-in-css-flexbox-layout-and-keeping-aspect-ratio";
-                    "height" => "100%";
-                    "style" => [CSSProp.Height "100%"];
-                    ][]
+        R.div [ ] [ //Style [ Display "Flex"; FlexDirection "Row"]] [ //trying to make all one row
+            RT.iconButton [ Icon "arrow_back"; onClick NavigateBackward dispatch][]
+            RT.iconButton [ Icon "arrow_forward"; onClick NavigateForward dispatch][]
+            RT.iconButton [ Icon "refresh"; onClick Refresh dispatch][]
+            RT.iconButton [ Icon "close"; onClick Close dispatch][]
+            RT.input [ Type "text"; InputProps.Value model.url; InputProps.OnChange ( Url >> dispatch ); onEnter Navigate dispatch ] []               
+        ]
+        R.from WebView
+            !![
+                "src" => "http://www.google.com";
+                "style" => [CSSProp.Height "100%"];
+                "id" => "webview";
+        ][]
         
     ]
 let viewLeftPaneOrg model dispatch =
-    let onClick msg =
-        OnClick <| fun _ -> msg |> dispatch 
+
     
     R.div [ Style [ GridArea "1 / 1 / 2 / 1";  ] ] //row start / col start / row end / col end    
         [
@@ -182,6 +231,11 @@ type App() as this =
     let dispatch = program |> Program.run safeState
 
     member this.componentDidMount() =
+        let webView = Browser.document.getElementById("webview")
+        webView?addEventListener("did-start-loading", 
+            fun ev -> UpdateNavigationUrl( "Loading..." ) |> dispatch ) |> ignore
+        webView?addEventListener("did-stop-loading", 
+            fun () -> UpdateNavigationUrl (unbox (webView?getURL()))  |> dispatch ) |> ignore
         this.props <- true
 
     member this.render() =
