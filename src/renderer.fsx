@@ -18,6 +18,7 @@ limitations under the License.*)
 //#load "../node_modules/fable-import-electron/Fable.Import.Electron.fs"
 #load "../node_modules/fable-react-toolbox/Fable.Helpers.ReactToolbox.fs"
 #load "../node_modules/fable-elmish/elmish.fs"
+#load "../node_modules/fable-import-d3/Fable.Import.D3.fs"
 
 open System
 open Fable.Core
@@ -35,7 +36,16 @@ module R = Fable.Helpers.React
 module RT = Fable.Helpers.ReactToolbox
 
 type RCom = React.ComponentClass<obj>
+
+type IGinger =
+    abstract init: unit -> unit
+
+let Ginger = importMember<unit->IGinger>("../app/js/ginger.js")
+let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
+let MyD3 = importAll<obj> "d3"
 let WebView = importDefault<RCom> "react-electron-webview" 
+let ginger = Ginger()
+
 let inline (!!) x = createObj x
 let inline (=>) x y = x ==> y
 
@@ -52,6 +62,11 @@ module S =
         Browser.localStorage.setItem(STORAGE_KEY, JS.JSON.stringify model)
 
 // MODEL
+type Datum =
+    {
+    Date : System.DateTime
+    Close : float
+}
 
 type Model = {
     count:int
@@ -59,8 +74,21 @@ type Model = {
     isChecked : bool
     info : string
     url : string
+    Data: Datum array
     }
 
+let GetDataFromFile =
+    let parseDate = D3.Time.Globals.format("%d-%b-%y").parse
+    let tsv = Node.fs.readFileSync("app/data/data.tsv", "utf8")
+    let data =
+        tsv.Trim().Split('\n')
+        |> Array.skip 1 //skip header
+        |> Array.map( fun row ->
+            let s = row.Split('\t')
+            let date = parseDate( s.[0] )
+            let close =  s.[1] |> float 
+            {Date=date;Close=close})
+    data
 
 type Msg =
     | Increment
@@ -76,7 +104,7 @@ type Msg =
     | Close
     | UpdateNavigationUrl of string
 
-let emptyModel =  { count = 0; tabIndex = 0; isChecked = true; url = "http://www.google.com"; info = "something here" }
+let emptyModel =  { count = 0; tabIndex = 0; isChecked = true; url = "http://www.google.com"; info = "something here"; Data = GetDataFromFile }
 
 //Initialize app and return initial model
 let init = function
@@ -121,6 +149,86 @@ let update (msg:Msg) (model:Model)  =
 
 
 // VIEW
+let ReactD3 (model:Model) =
+    let marginTop,marginRight,marginBottom,marginLeft = 20,20,30,50
+    let width = 960 - marginLeft  - marginRight
+    let height = 500 - marginTop  - marginBottom
+
+    //30-Apr-12
+    let parseDate = D3.Time.Globals.format("%d-%b-%y").parse
+
+    let x = 
+        D3.Time.Globals.scale<float,float>()
+            .range([|0.0; float width|])
+
+    let y = 
+        D3.Scale.Globals.linear()
+            .range([|float height; 0.0|])
+
+    let xAxis = 
+        D3.Svg.Globals.axis()
+            .scale(x)
+            .orient("bottom")
+
+    let yAxis = 
+        D3.Svg.Globals.axis()
+            .scale(y)
+            .orient("left")
+
+    let line2 = 
+        D3.Svg.Globals.line<Datum>() 
+            .x( System.Func<Datum,float,float>(fun d _ -> x.Invoke(d.Date) ) )
+            .y( System.Func<Datum,float,float>(fun d _ -> y.Invoke(d.Close) ) )
+
+    //this is a dynamic version of the typed line above
+    //most of the below goes dynamic, especially for things like attr, which otherwise would need erasable types
+    let line =
+        D3.Svg.Globals.line() 
+            ?x( fun d -> x$(d.Date ))
+            ?y( fun d -> y$(d.Close ))
+
+    let node  = ReactFauxDOM?createElement("svg") :?>  Browser.EventTarget
+    let svg = 
+        D3.Globals.select(node)
+            ?attr("width", width + marginLeft + marginRight )
+            ?attr("height", height + marginTop + marginBottom )
+            ?append("g")
+            ?attr("transform", "translate(" + marginLeft.ToString() + "," + marginTop.ToString() + ")" )
+
+
+    //D3.Globals.Extent doesn't have good method for DateTime, so I used dynamic
+    x?domain$( MyD3?extent( model.Data, fun d -> d.Date) ) |> ignore
+
+    //looks like extent is improperly returning a tuple instead of an array so we restructure
+    let yMin,yMax = D3.Globals.extent<Datum>( model.Data, System.Func<Datum, float, float>(fun d _ -> d.Close))
+    ignore <| y.domain( [|yMin;yMax|] )
+
+    svg?append("g")
+        ?attr("class",  "x axis")
+        ?attr("transform", "translate(0," + height.ToString() + ")") 
+        ?call(xAxis) 
+        |> ignore
+
+    svg?append("g")
+        ?attr("class", "y axis")
+        ?call(yAxis)
+        ?append("text")
+        ?attr("transform", "rotate(-90)")
+        ?attr("y", 6)
+        ?attr("dy", ".71em")
+        ?style("text-anchor", "end")
+        ?text( "Price ($)")
+        |> ignore
+
+    svg?append("path")
+        ?datum( model.Data )
+        ?attr("class", "line")
+        ?attr("fill", "none")
+        ?attr("stroke", "#000")
+        ?attr("d", line)  
+        |> ignore
+
+    node?toReact() :?> React.ReactElement<obj>
 
 let internal onEnter msg dispatch =
     function 
@@ -133,26 +241,8 @@ let internal onEnter msg dispatch =
 let internal onClick msg dispatch =
     OnClick <| fun _ -> msg |> dispatch 
 
-let viewLeftPane model dispatch =
-    R.div [ Style [ GridArea "1 / 1 / 3 / 1"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");  ] ] [
-        R.div [ ] [ //Style [ Display "Flex"; FlexDirection "Row"]] [ //trying to make all one row
-            RT.iconButton [ Icon "arrow_back"; onClick NavigateBackward dispatch][]
-            RT.iconButton [ Icon "arrow_forward"; onClick NavigateForward dispatch][]
-            RT.iconButton [ Icon "refresh"; onClick Refresh dispatch][]
-            RT.iconButton [ Icon "close"; onClick Close dispatch][]
-            RT.input [ Type "text"; InputProps.Value model.url; InputProps.OnChange ( Url >> dispatch ); onEnter Navigate dispatch ] []               
-        ]
-        R.from WebView
-            !![
-                "src" => "http://www.google.com";
-                "style" => [CSSProp.Height "100%"];
-                "id" => "webview";
-        ][]
-        
-    ]
-let viewLeftPaneOrg model dispatch =
+(*let viewLeftPaneOrg model dispatch =
 
-    
     R.div [ Style [ GridArea "1 / 1 / 2 / 1";  ] ] //row start / col start / row end / col end    
         [
             RT.appBar [ AppBarProps.LeftIcon "grade" ] []
@@ -187,8 +277,7 @@ let viewLeftPaneOrg model dispatch =
                 ]
             ]
         ]
-
-let viewRightPane model dispatch = 
+let viewRightPaneOrg model dispatch = 
     let onClick msg =
         OnClick <| fun _ -> msg |> dispatch 
 
@@ -202,12 +291,53 @@ let viewRightPane model dispatch =
         R.p [] [ unbox "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."]
         RT.button [ Icon "remove"; Label "Remove"; Raised true; onClick Decrement ] []
     ]
+*)
 
+let viewLeftPane model dispatch =
+    R.div [ Style [ GridArea "1 / 1 / 3 / 1"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");  ] ] [
+        R.div [ ] [ //Style [ Display "Flex"; FlexDirection "Row"]] [ //trying to make all one row
+            RT.iconButton [ Icon "arrow_back"; onClick NavigateBackward dispatch][]
+            RT.iconButton [ Icon "arrow_forward"; onClick NavigateForward dispatch][]
+            RT.iconButton [ Icon "refresh"; onClick Refresh dispatch][]
+            RT.iconButton [ Icon "close"; onClick Close dispatch][]
+            RT.input [ Type "text"; InputProps.Value model.url; InputProps.OnChange ( Url >> dispatch ); onEnter Navigate dispatch ] []               
+        ]
+        R.from WebView
+            !![
+                "src" => "http://www.google.com";
+                "style" => [CSSProp.Height "100%" ];
+                "id" => "webview";
+        ][]
+        
+    ]
 
-
+let viewRightPane model dispatch = 
+    let onClick msg =
+        OnClick <| fun _ -> msg |> dispatch 
+    R.div [] [
+        R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
+            R.div [ Id "renderer" ] []
+            R.p [] [ unbox "Alright. So the important thing to remember is that ..."]
+            RT.iconMenu  [ Id "morph" ; IconMenuProps.Icon (U2.Case2 "more_vert"); IconMenuProps.Position "topLeft" ] [
+                RT.menuItem [ MenuItemProps.Value "eyes"; MenuItemProps.Caption "Eyes"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "expression"; MenuItemProps.Caption "Expression"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "jawrange"; MenuItemProps.Caption "Jaw Height"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "jawtwist"; MenuItemProps.Caption "Jaw Twist"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "symmetry"; MenuItemProps.Caption "Symmetry"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "lipcurl"; MenuItemProps.Caption "Lip Curl"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "sex"; MenuItemProps.Caption "Face Structure"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "width"; MenuItemProps.Caption "Jaw Width"  ] [  ]
+                RT.menuItem [ MenuItemProps.Value "tongue"; MenuItemProps.Caption "Tongue"  ] [  ]
+            ]
+            RT.slider [ Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0; SliderProps.Value 0.0; SliderProps.Step 0.01  ] []
+        ]
+        R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
+            R.fn ReactD3 model []
+        ]
+    ]
 let viewMain model dispatch =
     //R.div [ Style [ Display "flex"; FlexDirection "row";  CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
-    R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "40% 60%"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%"); ] ] [
+    R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "60% 40%"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%"); ] ] [
         viewLeftPane model dispatch
         viewRightPane model dispatch
     ]
@@ -231,11 +361,15 @@ type App() as this =
     let dispatch = program |> Program.run safeState
 
     member this.componentDidMount() =
+        //take care of webView
         let webView = Browser.document.getElementById("webview")
         webView?addEventListener("did-start-loading", 
             fun ev -> UpdateNavigationUrl( "Loading..." ) |> dispatch ) |> ignore
         webView?addEventListener("did-stop-loading", 
             fun () -> UpdateNavigationUrl (unbox (webView?getURL()))  |> dispatch ) |> ignore
+        //take care of ginger (TODO: react-three-renderer)
+        ginger.init()
+
         this.props <- true
 
     member this.render() =
