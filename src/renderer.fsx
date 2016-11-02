@@ -15,10 +15,10 @@ limitations under the License.*)
 #r "../node_modules/fable-core/Fable.Core.dll"
 #load "../node_modules/fable-import-react/Fable.Import.React.fs"
 #load "../node_modules/fable-import-react/Fable.Helpers.React.fs"
-//#load "../node_modules/fable-import-electron/Fable.Import.Electron.fs"
 #load "../node_modules/fable-react-toolbox/Fable.Helpers.ReactToolbox.fs"
 #load "../node_modules/fable-elmish/elmish.fs"
 #load "../node_modules/fable-import-d3/Fable.Import.D3.fs"
+#load "ddd.fsx"
 
 open System
 open Fable.Core
@@ -29,6 +29,7 @@ open Fable.Import.Node
 open Fable.Helpers.ReactToolbox
 open Fable.Helpers.React.Props
 open Elmish
+open Ddd
 
 let [<Literal>] ENTER_KEY = 13.
 
@@ -41,8 +42,8 @@ type IGinger =
     abstract init: unit -> unit
 
 let Ginger = importMember<unit->IGinger>("../app/js/ginger.js")
-let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
-let MyD3 = importAll<obj> "d3"
+//let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
+//let MyD3 = importAll<obj> "d3"
 let WebView = importDefault<RCom> "react-electron-webview" 
 let ginger = Ginger()
 
@@ -62,11 +63,18 @@ module S =
         Browser.localStorage.setItem(STORAGE_KEY, JS.JSON.stringify model)
 
 // MODEL
-type Datum =
-    {
-    Date : System.DateTime
-    Close : float
-}
+let inline rand() = JS.Math.random()
+let nodes = 
+    [|
+        {id=0; reflexive=false; x= 10.0 * rand() ;y=10.0 * rand()}
+        {id=1; reflexive=true; x=20.0 * rand();y=20.0 * rand()}
+        {id=2; reflexive=false; x=30.0 * rand();y=30.0 * rand()}
+    |]
+let links = 
+    [|
+        {source=nodes.[0]; target= nodes.[1]; left=false; right=true}
+        {source=nodes.[1]; target= nodes.[2]; left=false; right=true}
+    |]
 
 type Model = {
     count:int
@@ -75,6 +83,9 @@ type Model = {
     info : string
     url : string
     Data: Datum array
+    MorphValue : float
+    nodes : Node array
+    links : Link array
     }
 
 let GetDataFromFile =
@@ -103,8 +114,20 @@ type Msg =
     | Refresh
     | Close
     | UpdateNavigationUrl of string
+    | MorphValueChange
 
-let emptyModel =  { count = 0; tabIndex = 0; isChecked = true; url = "http://www.google.com"; info = "something here"; Data = GetDataFromFile }
+let emptyModel =  
+    {    
+        count = 0; 
+        tabIndex = 0; 
+        isChecked = true; 
+        url = "http://www.google.com"; 
+        info = "something here"; 
+        Data = GetDataFromFile; 
+        MorphValue = 0.0 
+        nodes = nodes
+        links = links
+    }
 
 //Initialize app and return initial model
 let init = function
@@ -145,90 +168,17 @@ let update (msg:Msg) (model:Model)  =
         model
     | UpdateNavigationUrl(i) ->
         { model with url = i}
-
+    | MorphValueChange ->
+        //send something to ginger here
+        model
 
 
 // VIEW
 let ReactD3 (model:Model) =
-    let marginTop,marginRight,marginBottom,marginLeft = 20,20,30,50
-    let width = 960 - marginLeft  - marginRight
-    let height = 500 - marginTop  - marginBottom
 
-    //30-Apr-12
-    let parseDate = D3.Time.Globals.format("%d-%b-%y").parse
+   //D3Graph nodes links :?> React.ReactElement<obj>
+   D3Graph() :?> React.ReactElement<obj>
 
-    let x = 
-        D3.Time.Globals.scale<float,float>()
-            .range([|0.0; float width|])
-
-    let y = 
-        D3.Scale.Globals.linear()
-            .range([|float height; 0.0|])
-
-    let xAxis = 
-        D3.Svg.Globals.axis()
-            .scale(x)
-            .orient("bottom")
-
-    let yAxis = 
-        D3.Svg.Globals.axis()
-            .scale(y)
-            .orient("left")
-
-    let line2 = 
-        D3.Svg.Globals.line<Datum>() 
-            .x( System.Func<Datum,float,float>(fun d _ -> x.Invoke(d.Date) ) )
-            .y( System.Func<Datum,float,float>(fun d _ -> y.Invoke(d.Close) ) )
-
-    //this is a dynamic version of the typed line above
-    //most of the below goes dynamic, especially for things like attr, which otherwise would need erasable types
-    let line =
-        D3.Svg.Globals.line() 
-            ?x( fun d -> x$(d.Date ))
-            ?y( fun d -> y$(d.Close ))
-
-    let node  = ReactFauxDOM?createElement("svg") :?>  Browser.EventTarget
-    let svg = 
-        D3.Globals.select(node)
-            ?attr("width", width + marginLeft + marginRight )
-            ?attr("height", height + marginTop + marginBottom )
-            ?append("g")
-            ?attr("transform", "translate(" + marginLeft.ToString() + "," + marginTop.ToString() + ")" )
-
-
-    //D3.Globals.Extent doesn't have good method for DateTime, so I used dynamic
-    x?domain$( MyD3?extent( model.Data, fun d -> d.Date) ) |> ignore
-
-    //looks like extent is improperly returning a tuple instead of an array so we restructure
-    let yMin,yMax = D3.Globals.extent<Datum>( model.Data, System.Func<Datum, float, float>(fun d _ -> d.Close))
-    ignore <| y.domain( [|yMin;yMax|] )
-
-    svg?append("g")
-        ?attr("class",  "x axis")
-        ?attr("transform", "translate(0," + height.ToString() + ")") 
-        ?call(xAxis) 
-        |> ignore
-
-    svg?append("g")
-        ?attr("class", "y axis")
-        ?call(yAxis)
-        ?append("text")
-        ?attr("transform", "rotate(-90)")
-        ?attr("y", 6)
-        ?attr("dy", ".71em")
-        ?style("text-anchor", "end")
-        ?text( "Price ($)")
-        |> ignore
-
-    svg?append("path")
-        ?datum( model.Data )
-        ?attr("class", "line")
-        ?attr("fill", "none")
-        ?attr("stroke", "#000")
-        ?attr("d", line)  
-        |> ignore
-
-    node?toReact() :?> React.ReactElement<obj>
 
 let internal onEnter msg dispatch =
     function 
@@ -329,7 +279,9 @@ let viewRightPane model dispatch =
                 RT.menuItem [ MenuItemProps.Value "width"; MenuItemProps.Caption "Jaw Width"  ] [  ]
                 RT.menuItem [ MenuItemProps.Value "tongue"; MenuItemProps.Caption "Tongue"  ] [  ]
             ]
-            RT.slider [ Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0; SliderProps.Value 0.0; SliderProps.Step 0.01  ] []
+            //SliderProps.OnChange ( MorphValueChange >> dispatch ); //needs JS.Function?
+            //SliderProps.Value model.MorphValue; //need to be able to change model
+            RT.slider [ Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
         ]
         R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
             R.fn ReactD3 model []
