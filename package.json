@@ -26,8 +26,8 @@
     "react-toolbox": "^1.2.3",
     "react-electron-webview": "^1.0.7",
     "three": "^0.81.2",
-    "react-faux-dom": "^3.0.0",
-     "d3": "^3.5.17"
+    "react-d3-library": "^1.1.7",
+    "d3": "^3.5.17"
   },
   "devDependencies": {
     "fable-compiler": "^0.6.11",

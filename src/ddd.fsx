@@ -217,15 +217,6 @@ let D3Graph() =
     let tick() =
         // draw directed edges with proper padding from node centers
         path?attr("d", fun (d:Link) ->
-            if d.target.x |> JS.isNaN then d.target.x <- rand() * 10.0
-            if d.source.x |> JS.isNaN then d.source.x <- rand() * 10.0
-            if d.target.y |> JS.isNaN then d.target.y <- rand() * 10.0
-            if d.source.y |> JS.isNaN then d.source.y <- rand() * 10.0
-            d.target?px <- d.target.x 
-            d.target?py <- d.target.y
-            d.source?px <- d.source.x 
-            d.source?py <- d.source.y
-
             let deltaX = d.target.x - d.source.x 
             let deltaY = d.target.y - d.source.y
             let dist = Math.Sqrt(deltaX * deltaX + deltaY * deltaY)
@@ -241,14 +232,14 @@ let D3Graph() =
         ) |> ignore
 
         circle?attr("transform", fun d ->
-            "translate(" + (d?x).ToString() + "," + (d?y |> string) + ")";
+            "translate(" + unbox<string>(d?x) + "," + unbox<string>(d?y) + ")";
         )
     //init d3 force layout
     let force = 
         D3.Layout.Globals.force()
             ?nodes( nodes )
             ?links(links)
-            ?size([|width,height|])
+            ?size([|width;height|])
             ?linkDistance(150)
             ?charge(-500)
             ?on("tick",tick)
@@ -327,7 +318,7 @@ let D3Graph() =
                 else
                     // enlarge target node
                     //dealing with "this" https://hstefanski.wordpress.com/2015/10/25/responding-to-d3-events-in-typescript/
-                    D3.Globals.select(Browser.event.currentTarget)?attr("transform", "scale(1?1)") |> ignore
+                    D3.Globals.select(Browser.event.currentTarget)?attr("transform", "scale(1.1)") |> ignore
             )
             ?on("mouseout", fun d ->
                 if mousedown_node  = emptyNode || d = mousedown_node then
@@ -569,8 +560,8 @@ let D3Graph() =
         // ctrl
         if keyCode = 17 then
             circle
-                ?on("mousedown?drag", null)
-                ?on("touchstart?drag", null)
+                ?on("mousedown.drag", null)
+                ?on("touchstart.drag", null)
                 |> ignore
             svg?classed("ctrl", false) |> ignore
 

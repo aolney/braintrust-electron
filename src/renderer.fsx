@@ -18,7 +18,7 @@ limitations under the License.*)
 #load "../node_modules/fable-react-toolbox/Fable.Helpers.ReactToolbox.fs"
 #load "../node_modules/fable-elmish/elmish.fs"
 #load "../node_modules/fable-import-d3/Fable.Import.D3.fs"
-#load "ddd.fsx"
+#load "graph.fsx"
 
 open System
 open Fable.Core
@@ -29,7 +29,7 @@ open Fable.Import.Node
 open Fable.Helpers.ReactToolbox
 open Fable.Helpers.React.Props
 open Elmish
-open Ddd
+open Graph
 
 let [<Literal>] ENTER_KEY = 13.
 
@@ -53,7 +53,7 @@ let inline (=>) x y = x ==> y
 
 // Local storage interface
 module S =
-    let private STORAGE_KEY = "fable-electron-elmish-react-reacttoolbox"
+    let private STORAGE_KEY = "braintrust-electron"
     let load<'T> (): 'T option =
         Browser.localStorage.getItem(STORAGE_KEY)
         |> unbox 
@@ -63,43 +63,16 @@ module S =
         Browser.localStorage.setItem(STORAGE_KEY, JS.JSON.stringify model)
 
 // MODEL
-let inline rand() = JS.Math.random()
-let nodes = 
-    [|
-        {id=0; reflexive=false; x= 10.0 * rand() ;y=10.0 * rand()}
-        {id=1; reflexive=true; x=20.0 * rand();y=20.0 * rand()}
-        {id=2; reflexive=false; x=30.0 * rand();y=30.0 * rand()}
-    |]
-let links = 
-    [|
-        {source=nodes.[0]; target= nodes.[1]; left=false; right=true}
-        {source=nodes.[1]; target= nodes.[2]; left=false; right=true}
-    |]
-
 type Model = {
     count:int
     tabIndex : int
     isChecked : bool
     info : string
     url : string
-    Data: Datum array
     MorphValue : float
-    nodes : Node array
-    links : Link array
+    force: D3.Layout.Force<Link,Node>
     }
 
-let GetDataFromFile =
-    let parseDate = D3.Time.Globals.format("%d-%b-%y").parse
-    let tsv = Node.fs.readFileSync("app/data/data.tsv", "utf8")
-    let data =
-        tsv.Trim().Split('\n')
-        |> Array.skip 1 //skip header
-        |> Array.map( fun row ->
-            let s = row.Split('\t')
-            let date = parseDate( s.[0] )
-            let close =  s.[1] |> float 
-            {Date=date;Close=close})
-    data
 
 type Msg =
     | Increment
@@ -115,6 +88,7 @@ type Msg =
     | Close
     | UpdateNavigationUrl of string
     | MorphValueChange
+    | AddNode
 
 let emptyModel =  
     {    
@@ -123,10 +97,8 @@ let emptyModel =
         isChecked = true; 
         url = "http://www.google.com"; 
         info = "something here"; 
-        Data = GetDataFromFile; 
         MorphValue = 0.0 
-        nodes = nodes
-        links = links
+        force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> 
     }
 
 //Initialize app and return initial model
@@ -171,15 +143,17 @@ let update (msg:Msg) (model:Model)  =
     | MorphValueChange ->
         //send something to ginger here
         model
+    | AddNode ->
+        //it is important to mutate existing nodes. if we create new ones, e.g. with Array.map, existing links will break
+        let x,y = 10.0, 10.0 //totally arbitrary
+        let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
+        model.force.nodes()?push(node) |> ignore
+        restart( model.force ) |> ignore
+        model
+
 
 
 // VIEW
-let ReactD3 (model:Model) =
-
-   //D3Graph nodes links :?> React.ReactElement<obj>
-   D3Graph() :?> React.ReactElement<obj>
-
-
 let internal onEnter msg dispatch =
     function 
     | (ev:React.KeyboardEvent) when ev.keyCode = ENTER_KEY ->
@@ -284,7 +258,10 @@ let viewRightPane model dispatch =
             RT.slider [ Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
         ]
         R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
-            R.fn ReactD3 model []
+            R.com<ForceDirectedGraph,_,_> 
+                { new ForceDirectedGraphProps with
+                    member __.force = model.force
+                } []
         ]
     ]
 let viewMain model dispatch =
