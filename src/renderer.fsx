@@ -104,7 +104,7 @@ type Msg =
     | Refresh
     | Close
     | UpdateNavigationUrl of string
-    | MorphValueChange
+    | MorphValueChange of float
     | AddNode
     | Speak
 
@@ -115,7 +115,7 @@ let emptyModel =
         isChecked = true; 
         url = "http://www.google.com"; 
         info = "something here"; 
-        MorphValue = 0.0 
+        MorphValue = 0.1
         force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> 
     }
 
@@ -161,9 +161,9 @@ let update (msg:Msg) (model:Model)  =
         model
     | UpdateNavigationUrl(i) ->
         { model with url = i}
-    | MorphValueChange ->
+    | MorphValueChange(i) ->
         //send something to ginger here
-        model
+        {model with MorphValue = i}
     | AddNode ->
         //it is important to mutate existing nodes. if we create new ones, e.g. with Array.map, existing links will break
         let x,y = 10.0, 10.0 //totally arbitrary
@@ -282,7 +282,8 @@ let viewRightPane model dispatch =
             ]
             //SliderProps.OnChange ( MorphValueChange >> dispatch ); //needs JS.Function?
             //SliderProps.Value model.MorphValue; //need to be able to change model
-            RT.slider [ Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
+            //RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( JS.Function.Create("i","function ($var11) { return dispatch(function (arg0) {return new Msg('MorphValueChange', [arg0]);}($var11));}") ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
+            RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( MorphValueChange >> dispatch ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
         ]
         R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
             RT.button [ Label "Speak"; Raised true; onClick Speak ] []
