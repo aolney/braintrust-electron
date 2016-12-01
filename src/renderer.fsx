@@ -42,10 +42,27 @@ type IGinger =
     abstract init: unit -> unit
 
 let Ginger = importMember<unit->IGinger>("../app/js/ginger.js")
+let ginger = Ginger()
 //let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
 //let MyD3 = importAll<obj> "d3"
+
+type IMary =
+    abstract ``process``: text:string*options:obj*callback:Func<obj,unit> -> unit 
+    abstract phonemes: words:string array*local:string*voice:string*callback:Func<obj,unit> -> unit 
+    abstract voices: callback:Func<obj,unit> -> unit
+    abstract locales: callback:Func<obj,unit> -> unit
+    abstract inputTypes: callback:Func<obj,string array> -> unit
+    abstract outputTypes: callback:Func<obj,string array> -> unit
+    abstract audioFormats: callback:Func<obj,string array> -> unit
+
+//let Mary = importMember<string*int->IMary> "marytts"
+//http://localhost:59125/process?INPUT_TYPE=TEXT&AUDIO=WAVE_FILE&OUTPUT_TYPE=AUDIO&LOCALE=en-US&INPUT_TEXT=%22Hi%20there%22
+//let mary = Mary("localhost",59125)
+
+let Mary : obj = importMember "marytts"
+let mary : IMary = createNew Mary ("localhost", 59125) |> unbox
 let WebView = importDefault<RCom> "react-electron-webview" 
-let ginger = Ginger()
+
 
 let inline (!!) x = createObj x
 let inline (=>) x y = x ==> y
@@ -89,6 +106,7 @@ type Msg =
     | UpdateNavigationUrl of string
     | MorphValueChange
     | AddNode
+    | Speak
 
 let emptyModel =  
     {    
@@ -108,6 +126,9 @@ let init = function
 
 
 // UPDATE
+/// Uses Fable's Emit to call JavaScript directly
+[<Emit("(new Audio($0)).play();")>]
+let sound(file:string) : unit = failwith "never"
 let update (msg:Msg) (model:Model)  =
     let webView = Browser.document.getElementById("webview")
     match msg with
@@ -150,8 +171,14 @@ let update (msg:Msg) (model:Model)  =
         model.force.nodes()?push(node) |> ignore
         restart( model.force ) |> ignore
         model
-
-
+    | Speak ->
+        mary.``process``(
+            "Hello World", 
+            createObj[ "base64" ==> true], 
+            fun audio -> sound( audio |> unbox<string> )
+            //Browser.console.log(audio)  
+        )
+        model
 
 // VIEW
 let internal onEnter msg dispatch =
@@ -258,6 +285,8 @@ let viewRightPane model dispatch =
             RT.slider [ Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
         ]
         R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
+            RT.button [ Label "Speak"; Raised true; onClick Speak ] []
+            RT.button [ Label "Add Node"; Raised true; onClick AddNode ] []
             R.com<ForceDirectedGraph,_,_> 
                 { new ForceDirectedGraphProps with
                     member __.force = model.force

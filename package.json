@@ -11,11 +11,11 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": { 
-    "name" : "Andrew Olney", 
-    "email" : "aolney@memphis.edu", 
-    "url" : "http://andrewmolney.name/"
-    },
+  "author": {
+    "name": "Andrew Olney",
+    "email": "aolney@memphis.edu",
+    "url": "http://andrewmolney.name/"
+  },
   "license": "Apache-2.0",
   "dependencies": {
     "electron": "^1.4.2",
@@ -27,26 +27,28 @@
     "react-electron-webview": "^1.0.7",
     "three": "^0.81.2",
     "react-d3-library": "^1.1.7",
-    "d3": "^3.5.17"
+    "d3": "^3.5.17",
+    "marytts": "git+https://github.com/aolney/marytts.git"
   },
   "devDependencies": {
-    "fable-compiler": "^0.6.11",
-    "fable-import-electron": "0.0.5",
-    "fable-import-react": "^0.5.2",
-    "fable-react-toolbox": "^0.6.0",
-    "fable-elmish": "^0.3.0",
-    "source-map-loader": "^0.1.5",
-    "webpack": "^1.13.1",
     "autoprefixer": "^6.4.1",
     "css-loader": "^0.25.0",
     "extract-text-webpack-plugin": "^1.0.1",
+    "fable-compiler": "^0.6.11",
+    "fable-elmish": "^0.3.0",
+    "fable-import-d3": "0.0.2",
+    "fable-import-electron": "0.0.5",
+    "fable-import-react": "^0.5.2",
+    "fable-import-three": "^0.0.3",
+    "fable-react-toolbox": "^0.6.0",
     "immutability-helper": "^2.0.0",
+    "json-loader": "^0.5.4",
     "node-sass": "^3.10.0",
     "postcss-loader": "^0.13.0",
     "react-hot-loader": "^3.0.0-beta.5",
     "sass-loader": "^4.0.2",
+    "source-map-loader": "^0.1.5",
     "style-loader": "^0.13.1",
-    "fable-import-three": "^0.0.3",
-    "fable-import-d3": "0.0.2"
+    "webpack": "^1.13.1"
   }
 }

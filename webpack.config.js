@@ -32,7 +32,8 @@ var cfg = {
 	  {
         test: /(\.scss|\.css)$/,
         loader: ExtractTextPlugin.extract('style', 'css?sourceMap&modules&importLoaders=1&localIdentName=[name]__[local]___[hash:base64:5]!postcss!sass')
-      }
+      },
+      { test: /\.json$/, loader: 'json-loader' }
 	]
   },
   postcss: [autoprefixer],
