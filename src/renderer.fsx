@@ -47,9 +47,60 @@ let ginger = Ginger()
 //let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
 //let MyD3 = importAll<obj> "d3"
 
+type Duration =
+    {
+        phoneme : string
+        number : int
+        time : float
+    }
+(*"0"	PhonOh
+"@"	PhonAah
+"@U"	PhonAah
+"A"	PhonAah
+"AI"	PhonAah
+"D"	PhonDST
+"E"	PhonEe
+"EI"	PhonEh
+"I"	PhonI
+"N"	PhonN
+"O"	PhonOh 
+"OI"	PhonOohQ
+"S"	PhonDST
+"T"	PhonDST
+"U"	PhonW
+"V"	PhonFV
+"Z"	PhonDST
+"_"	PhonBMP
+"aU"	PhonAah
+"b"	PhonBMP
+"d"	PhonDST
+"dZ"	PhonChJSh
+"f"	PhonFV
+"g"	PhonK
+"h"	PhonK
+"i"	PhonI
+"j"	PhonI
+"k"	PhonK
+"l"	PhonN
+"m"	PhonBMP
+"n"	PhonN
+"p"	PhonBMP
+"r"	PhonR
+"r="	PhonR
+"s"	PhonDST
+"t"	PhonDST
+"tS"	PhonChJSh
+"u"	PhonW
+"v"	PhonFV
+"w"	PhonW
+"z"	PhonDST
+"{"	PhonTh*)
+let openPhonemes = Set.ofList["0"; "@"; "@U"; "A"; "AI"; "E"; "EI"; "I"; "O"; "OI"; "aU"; "i";"r=";]
+
 type IMary =
     abstract ``process``: text:string*options:obj*callback:Func<obj,unit> -> unit 
-    abstract phonemes: words:string array*local:string*voice:string*callback:Func<obj,unit> -> unit 
+    abstract durations: text:string*options:obj*callback:Func<obj array,unit> -> unit 
+    abstract phonemes: words:string array*locale:string*voice:string*callback:Func<obj,unit> -> unit 
     abstract voices: callback:Func<obj,unit> -> unit
     abstract locales: callback:Func<obj,unit> -> unit
     abstract inputTypes: callback:Func<obj,string array> -> unit
@@ -179,6 +230,24 @@ let update (msg:Msg) (model:Model)  =
         restart( model.force ) |> ignore
         model
     | Speak ->
+        mary.durations(
+            "Hello World", 
+            createObj[ "base64" ==> true],
+            fun jsDurations  -> 
+                let durations = jsDurations |> Array.map( fun d -> { time=unbox(d?time)*1000.0;phoneme=unbox(d?phoneme);number=unbox(d?number) } )
+                async{
+                    let mutable previousTime = 0.0
+                    for d in durations do
+                        //need to smooth targets; check out xnagent code for this
+                        if Set.contains d.phoneme openPhonemes then
+                            ginger.doMorph( 0.5 ) 
+                        else 
+                            ginger.doMorph( 0.0 )
+                        do! Async.Sleep( (d.time - previousTime) |> int )
+                        previousTime <- d.time
+                } |> Async.StartImmediate
+                Browser.console.log(durations)  
+        )
         mary.``process``(
             "Hello World", 
             createObj[ "base64" ==> true], 
