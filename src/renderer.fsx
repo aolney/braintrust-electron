@@ -40,7 +40,8 @@ type RCom = React.ComponentClass<obj>
 
 type IGinger =
     abstract init: unit -> unit
-
+    abstract doMorph: float -> unit
+    abstract selectMorph: string -> unit
 let Ginger = importMember<unit->IGinger>("../app/js/ginger.js")
 let ginger = Ginger()
 //let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
@@ -87,6 +88,7 @@ type Model = {
     info : string
     url : string
     MorphValue : float
+    MorphName : string
     force: D3.Layout.Force<Link,Node>
     }
 
@@ -105,6 +107,7 @@ type Msg =
     | Close
     | UpdateNavigationUrl of string
     | MorphValueChange of float
+    | MorphNameChange of string
     | AddNode
     | Speak
 
@@ -116,6 +119,7 @@ let emptyModel =
         url = "http://www.google.com"; 
         info = "something here"; 
         MorphValue = 0.1
+        MorphName = "jawrange"
         force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> 
     }
 
@@ -162,8 +166,11 @@ let update (msg:Msg) (model:Model)  =
     | UpdateNavigationUrl(i) ->
         { model with url = i}
     | MorphValueChange(i) ->
-        //send something to ginger here
+        ginger.doMorph(i)
         {model with MorphValue = i}
+    | MorphNameChange(i) ->
+        ginger.selectMorph(i)
+        {model with MorphName = i}
     | AddNode ->
         //it is important to mutate existing nodes. if we create new ones, e.g. with Array.map, existing links will break
         let x,y = 10.0, 10.0 //totally arbitrary
@@ -269,7 +276,8 @@ let viewRightPane model dispatch =
         R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
             R.div [ Id "renderer" ] []
             R.p [] [ unbox "Alright. So the important thing to remember is that ..."]
-            RT.iconMenu  [ Id "morph" ; IconMenuProps.Icon (U2.Case2 "more_vert"); IconMenuProps.Position "topLeft" ] [
+            //fun i -> MorphNameChange(unbox<string> i) |> dispatch );
+            RT.iconMenu  [ IconMenuProps.OnSelect(  unbox >> MorphNameChange >> dispatch );  Id "morph" ; IconMenuProps.Icon (U2.Case2 "more_vert"); IconMenuProps.Position "topLeft" ] [
                 RT.menuItem [ MenuItemProps.Value "eyes"; MenuItemProps.Caption "Eyes"  ] [  ]
                 RT.menuItem [ MenuItemProps.Value "expression"; MenuItemProps.Caption "Expression"  ] [  ]
                 RT.menuItem [ MenuItemProps.Value "jawrange"; MenuItemProps.Caption "Jaw Height"  ] [  ]
