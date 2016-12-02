@@ -50,27 +50,149 @@ type Link =
         target : Node
     }
 
+let emptyNode = {index=None;x=None;y=None;px=None;py=None;``fixed``=None;weight=None}
+let emptyLink = {source=emptyNode;target=emptyNode}
+//UI handlers
+type UIState =
+    {
+        selectedNode : Node option
+        mousedownNode : Node option
+        mouseupNode : Node option
+        selectedLink : Link option
+        mousedownLink : Link option
+        dragging : bool
+    }
+let initialState = {dragging=false;selectedNode=None;mousedownNode=None;mouseupNode=None;selectedLink=None;mousedownLink=None}
+let mutable uiState = initialState
+let resetMouseState() = 
+    uiState <- {uiState with dragging=false;mousedownLink=None;mousedownNode=None;mouseupNode=None}
 let restart(force : D3.Layout.Force<Link,Node>) =
     let svg = D3.Globals.select("svg")
     svg
-        ?selectAll("line.link")
+        ?selectAll(".link")
         ?data(force.links())
         ?enter()
-        ?insert("svg:line", "circle.node")
+        ?insert("svg:line")
         ?attr("class", "link")
+        ?attr("marker-end",  "url(#end-arrow)" )
         |> ignore
 
     svg
-        ?selectAll("circle.node")
+        ?selectAll(".node")
         ?data(force.nodes())
         ?enter()
-        ?insert("svg:circle", "circle.cursor")
+        ?insert("svg:circle")
         ?attr("class", "node")
         ?attr("r", 5)
         ?call(force.drag())
         |> ignore
 
     force.start();
+
+let mousemove() =
+    //current mouse coordinates
+    let mouseX,mouseY =  D3.Globals.mouse(Browser.``event``.currentTarget)
+
+    //move circle cursor (eventually delete this)
+    D3.Globals.select(".cursor")
+        ?attr("transform", "translate(" + unbox<string>(mouseX) + "," + unbox<string>(mouseY) + ")")
+        |> ignore
+
+    match uiState with
+    //node; continue to drag line
+    | {mousedownNode=Some(n)} ->
+        uiState <- {uiState with dragging=true}
+        let x,y =
+            match n.x,n.y with
+            | Some(x),Some(y) -> x,y
+            | _ -> 0.0,0.0
+        D3.Globals.select(".drag_line")
+            ?attr("d", "M" + unbox<string>(x) + "," + unbox<string>(y) + "L" + unbox<string>(mouseX) + "," + unbox<string>(mouseY))
+            |> ignore
+    //all other cases do nothing
+    | _ -> ()
+
+let mousedown( force ) =
+    match uiState with
+    //empty space md; deselect everything -- should we reset here?
+    | {mousedownNode=None; mousedownLink=None} ->
+        uiState <- {uiState with selectedNode=None; selectedLink=None }
+    //node; prepare to drag line
+    | {mousedownNode=Some(n)} ->
+        let x,y =
+            match n.x,n.y with
+            | Some(x),Some(y) -> x,y
+            | _ -> 0.0,0.0
+
+        D3.Globals.select(".drag_line")
+            // ?style("marker-end", "url(#end-arrow)")
+            // ?classed("hidden", false)
+            ?attr("class","link")
+            ?attr("d", "M" + unbox<string>(x) + "," + unbox<string>(y) + "L" + unbox<string>(x) + "," + unbox<string>(y))
+            |> ignore
+    //all other cases do nothing
+    | _ -> ()
+
+    restart( force )
+
+let mouseup(force : D3.Layout.Force<Link,Node> ) =
+    //hide drag line
+    D3.Globals.select(".drag_line")
+            ?attr("class","drag_line_hidden")
+            |> ignore
+
+    match uiState with
+    //down/up on same node; assume aborted action
+    | {mousedownNode=Some(mD); mouseupNode=Some(mU)} when mD=mU ->
+        resetMouseState()
+    //up on another node; make link
+    | {mousedownNode=Some(mD); mouseupNode=Some(mU)} ->
+        let link = { source=mD; target=mU }
+        force.links()?push(link) |> ignore
+        uiState <- {uiState with selectedLink=Some(link); selectedNode=None}
+    //up in empty space; make node
+    | {mouseupNode=None} ->
+        let x,y =  D3.Globals.mouse(Browser.``event``.currentTarget)
+        let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
+        force.nodes()?push(node) |> ignore
+        uiState <- {uiState with selectedNode=Some(node); selectedLink=None}
+    //all other cases do nothing
+    | _ -> ()
+
+    //clear mouse state
+    resetMouseState()
+
+    restart( force )
+
+let click(force : D3.Layout.Force<Link,Node> ) =
+(*    let x,y = 
+        match Browser.``event`` with
+        | null -> 0.0,0.0
+        | _  -> D3.Globals.mouse(Browser.``event``.currentTarget)*)
+    let x,y =  D3.Globals.mouse(Browser.``event``.currentTarget)
+
+    let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
+    let nodes = force.nodes()
+    let links = force.links() 
+    nodes?push(node) |> ignore
+
+    // add links to any nearby nodes; exclude self
+    nodes?forEach( fun target -> 
+        let x = 
+            match target.x, node.x with
+            | Some(t), Some(n) -> t-n
+            | _,_ -> 0.0
+
+        let y = 
+            match target.y, node.y with 
+            | Some( t), Some(n) -> t-n
+            | _,_ -> 0.0
+
+        if x <> 0.0 && y <> 0.0 && Math.Sqrt(x * x + y * y) < 30.0 then
+            links?push({source= node; target= target}) |> ignore
+    ) |> ignore
+    
+    restart( force )
 
 //this is called exactly once to initialize the d3 graph for react
 let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
@@ -85,30 +207,46 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
     let svg = 
         D3.Globals.select(graph)
             ?append("svg:svg")
-            ?attr("width", width )
-            ?attr("height", height )
-            //special handler; part of react-d3-library pattern
+                ?attr("width", width )
+                ?attr("height", height )
+                //special handler; part of react-d3-library pattern
             ?on("mount",fun () ->
 
         //react-d3-library requires that we reselect
         let svg = D3.Globals.select("svg")
 
+        //link with arrow
         svg
-            ?append("svg:rect")
-            ?attr("width", width)
-            ?attr("height", height)
-            |> ignore
+            ?append("defs")
+            ?append("marker")
+                ?attr("id", "end-arrow")
+                ?attr("viewBox", "0 -5 10 10")
+                ?attr("refX", 13)
+                ?attr("markerWidth", 3)
+                ?attr("markerHeight", 3)
+                ?attr("orient", "auto")
+            ?append("path")
+                ?attr("d", "M0,-5L10,0L0,5")
+                |> ignore
 
-        let cursor = 
-            svg
-                ?append("svg:circle")
-                ?attr("r", 30)
-                ?attr("transform", "translate(-100,-100)")
-                ?attr("class", "cursor")
+        //drag line
+        svg
+            ?append("line")
+                ?attr("class", "drag_line")
+                ?attr("d", "M0,0L0,0")
+                |>ignore
+
+        //circle cursor
+        svg
+            ?append("svg:circle")
+            ?attr("r", 30)
+            ?attr("transform", "translate(-100,-100)")
+            ?attr("class", "cursor")
+            |> ignore
         
         force.on("tick", fun _ ->
             svg
-                ?selectAll("line.link")
+                ?selectAll(".link")
                 ?attr("x1", fun (d : Link) -> d.source.x )
                 ?attr("y1", fun d ->  d.source.y)
                 ?attr("x2", fun d ->  d.target.x)
@@ -116,48 +254,20 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
                 |> ignore
 
             svg
-                ?selectAll("circle.node")
+                ?selectAll(".node")
                 ?attr("cx", fun d ->  d.x)
                 ?attr("cy", fun d ->  d.y)
                 |> ignore
         ) |> ignore
 
-        svg?on( "mousemove", fun _ -> 
-            let x,y = D3.Globals.mouse(Browser.event.currentTarget)
-            cursor?attr("transform", "translate(" + unbox<string>(x) + "," + unbox<string>(y) + ")")
-        ) |> ignore
 
-        svg?on("mousedown", fun () ->
-            //d3.event.preventDefault() //no equivalent?
-            ()
-        ) |> ignore
-
-        svg?on("click", fun _ ->
-            let x,y = D3.Globals.mouse(Browser.event.currentTarget)
-            let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
-            let nodes = force.nodes()
-            let links = force.links() 
-            nodes?push(node) |> ignore
-        
-            // add links to any nearby nodes
-            nodes?forEach( fun target -> 
-                let x = 
-                    match target.x, node.x with
-                    | Some(t), Some(n) -> t-n
-                    | _,_ -> 0.0
-
-                let y = 
-                    match target.y, node.y with 
-                    | Some( t), Some(n) -> t-n
-                    | _,_ -> 0.0
-
-                if Math.Sqrt(x * x + y * y) < 30.0 then
-                    links?push({source= node; target= target}) |> ignore
-                
-            ) |> ignore
-
-            restart( force )
-        )
+        //svg level event handlers
+        svg
+            ?on("mousemove", mousemove)
+            ?on("mousedown", fun _ -> mousedown( force ) ) //we need force in the closure
+            ?on("mouseup", fun _ -> mouseup( force )) //we need force in the closure
+            //?on("click", fun _ -> click( force )) //we need force in the closure
+            |> ignore
     )
     //react-d3-library pattern has use return the dom element
     graph
