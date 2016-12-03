@@ -59,28 +59,43 @@ type UIState =
         mouseupNode : Node option
         selectedLink : Link option
         mousedownLink : Link option
-        dragging : bool
+        keyCode : int option
     }
-let initialState = {dragging=false;selectedNode=None;mousedownNode=None;mouseupNode=None;selectedLink=None;mousedownLink=None}
+let initialState = {keyCode=None;selectedNode=None;mousedownNode=None;mouseupNode=None;selectedLink=None;mousedownLink=None}
 let mutable uiState = initialState
 let resetMouseState() = 
-    uiState <- {uiState with dragging=false;mousedownLink=None;mousedownNode=None;mouseupNode=None}
+    uiState <- {uiState with mousedownLink=None;mousedownNode=None;mouseupNode=None}
 let rec restart(force : D3.Layout.Force<Link,Node>) =
     let svg = D3.Globals.select("svg")
-    svg
-        ?selectAll(".link")
-        ?data(force.links())
+
+    let links = svg?selectAll(".link")?data(force.links())
+
+    links
         ?enter()
         ?insert("svg:line")
         ?attr("class", "link")
         ?attr("marker-end",  "url(#end-arrow)" )
         ?on("mousedown", fun d ->
-            uiState <- {uiState with mousedownLink=Some(d);selectedLink=Some(d);selectedNode=None} )
+            uiState <- {uiState with mousedownLink=Some(d);selectedLink=Some(d);selectedNode=None} 
+            restart( force )
+        )
         |> ignore
 
-    svg
-        ?selectAll(".node")
-        ?data(force.nodes())
+    //clear any links we deleted from layout
+    links?exit()?remove() |> ignore
+
+    //highlight selected link
+    links
+        ?classed("link_selected", fun d -> 
+            match uiState with
+            | {selectedLink=Some(link)} when d = link -> true
+            | _ -> false
+        )
+        |> ignore
+
+    let nodes = svg?selectAll(".node")?data(force.nodes())
+
+    nodes
         ?enter()
         ?insert("svg:circle")
         ?attr("class", "node")
@@ -94,6 +109,18 @@ let rec restart(force : D3.Layout.Force<Link,Node>) =
             //restart( force )
             )
         //?call(force.drag()) //this will make a node draggable
+        |> ignore
+    
+    //clear any nodes we deleted from layout
+    nodes?exit()?remove() |> ignore
+ 
+    //highlight selected nodes
+    nodes
+        ?classed("node_selected", fun d -> 
+            match uiState with
+            | {selectedNode=Some(node)} when d = node -> true
+            | _ -> false
+        )
         |> ignore
 
     force.start();
@@ -110,7 +137,6 @@ let mousemove( force : D3.Layout.Force<Link,Node> ) =
     match uiState with
     //node; continue to drag line
     | {mousedownNode=Some(n)} ->
-        uiState <- {uiState with dragging=true}
         let x,y =
             match n.x,n.y with
             | Some(x),Some(y) -> x,y
@@ -129,10 +155,13 @@ let mousedown(force : D3.Layout.Force<Link,Node> ) =
     //empty space md; deselect everything -- should we reset here?
     | {mousedownNode=None; mousedownLink=None} ->
         uiState <- {uiState with selectedNode=None; selectedLink=None }
-    //node; prepare to drag line
-    | {mousedownNode=Some(n)} ->
+    //node; change appearance and prepare to drag line
+    | {mousedownNode=Some(node)} ->
+        uiState <- {uiState with selectedNode=Some(node); selectedLink=None }
+
+        //drag line
         let x,y =
-            match n.x,n.y with
+            match node.x,node.y with
             | Some(x),Some(y) -> x,y
             | _ -> 0.0,0.0
 
@@ -142,7 +171,9 @@ let mousedown(force : D3.Layout.Force<Link,Node> ) =
             ?attr("class","drag_line")
             ?attr("d", "M" + unbox<string>(x) + "," + unbox<string>(y) + "L" + unbox<string>(x) + "," + unbox<string>(y))
             |> ignore
-
+    //link
+    | {mousedownLink=Some(link)} ->
+        uiState <- {uiState with selectedNode=None; selectedLink=Some(link) }
     //all other cases do nothing
     | _ -> ()
 
@@ -163,7 +194,7 @@ let mouseup(force : D3.Layout.Force<Link,Node> ) =
         force.links()?push(link) |> ignore
         uiState <- {uiState with selectedLink=Some(link); selectedNode=None}
     //up in empty space; make node
-    | {mouseupNode=None} ->
+    | {mouseupNode=None; mousedownLink=None} ->
         let x,y =  D3.Globals.mouse(Browser.``event``.currentTarget)
         let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
         force.nodes()?push(node) |> ignore
@@ -177,12 +208,43 @@ let mouseup(force : D3.Layout.Force<Link,Node> ) =
     //generally safe to assume we should restart force layout
     restart( force )
 
+let spliceLinksForNode links node =
+        let toSplice = links?filter(fun (l : Link)->
+                (l.source = node || l.target = node);
+        )
+        toSplice?map(fun l ->
+            links?splice(links?indexOf(l), 1);
+        )
+        |> ignore
+
+let keydown(e: Browser.KeyboardEvent, force : D3.Layout.Force<Link,Node> ) =
+
+    let keyCode = int e.keyCode
+    uiState <- {uiState with keyCode=Some(keyCode)}
+       
+    let nodes = force.nodes()
+    let links = force.links()
+
+    match uiState with
+    //selected node with delete key
+    | {selectedNode=Some(node); keyCode=Some(keyCode)} when keyCode = 46 ->
+        nodes?splice( nodes?indexOf( node ), 1 ) |> ignore
+        spliceLinksForNode links node
+        uiState <- {uiState with keyCode=None; selectedNode=None}
+        restart( force ) |> ignore
+    //selected link with delete key
+    | {selectedLink=Some(link); keyCode=Some(keyCode)} when keyCode = 46 ->
+        links?splice( links?indexOf( link ), 1 ) |> ignore
+        uiState <- {uiState with keyCode=None; selectedLink=None}
+        restart( force ) |> ignore
+    //all other cases do nothing
+    | _ -> ()
+
+    //required to return object?
+    null
+
 //THIS IS NOW JUNK
 let click(force : D3.Layout.Force<Link,Node> ) =
-(*    let x,y = 
-        match Browser.``event`` with
-        | null -> 0.0,0.0
-        | _  -> D3.Globals.mouse(Browser.``event``.currentTarget)*)
     let x,y =  D3.Globals.mouse(Browser.``event``.currentTarget)
 
     let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
@@ -216,7 +278,7 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
     let height = 800
 
     //configure the force. Note the empty model force is not configured and has goofy defaults
-    force?charge(-80)?linkDistance(25)?size([|width; height|]) |> ignore
+    force?charge(-500)?linkDistance(150)?size([|width; height|]) |> ignore
 
     let svg = 
         D3.Globals.select(graph)
@@ -280,8 +342,11 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
             ?on("mousemove", fun _ -> mousemove( force ) ) //we need force in the closure
             ?on("mousedown", fun _ -> mousedown( force ) ) //we need force in the closure
             ?on("mouseup", fun _ -> mouseup( force )) //we need force in the closure
+            //?on("keydown", fun _ -> keydown( force )) //we need force in the closure
             //?on("click", fun _ -> click( force )) //we need force in the closure
             |> ignore
+        
+        Browser.window.addEventListener_keydown(fun e -> keydown(e, force))
     )
     //react-d3-library pattern has use return the dom element
     graph

@@ -11,9 +11,23 @@
   cursor: crosshair;
 }
 
+.link_selected {
+  fill: #ff7f0e;
+  stroke: #ff7f0e;
+  stroke-width: 4px;
+  cursor: crosshair;
+}
+
 .node {
   fill: #000;
   stroke: #333;
+  stroke-width: 1.5px;
+  cursor: crosshair;
+}
+
+.node_selected {
+  fill: #ff7f0e;
+  stroke: #ff7f0e;
   stroke-width: 1.5px;
   cursor: crosshair;
 }
