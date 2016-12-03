@@ -50,8 +50,7 @@ type Link =
         target : Node
     }
 
-let emptyNode = {index=None;x=None;y=None;px=None;py=None;``fixed``=None;weight=None}
-let emptyLink = {source=emptyNode;target=emptyNode}
+
 //UI handlers
 type UIState =
     {
@@ -66,7 +65,7 @@ let initialState = {dragging=false;selectedNode=None;mousedownNode=None;mouseupN
 let mutable uiState = initialState
 let resetMouseState() = 
     uiState <- {uiState with dragging=false;mousedownLink=None;mousedownNode=None;mouseupNode=None}
-let restart(force : D3.Layout.Force<Link,Node>) =
+let rec restart(force : D3.Layout.Force<Link,Node>) =
     let svg = D3.Globals.select("svg")
     svg
         ?selectAll(".link")
@@ -75,6 +74,8 @@ let restart(force : D3.Layout.Force<Link,Node>) =
         ?insert("svg:line")
         ?attr("class", "link")
         ?attr("marker-end",  "url(#end-arrow)" )
+        ?on("mousedown", fun d ->
+            uiState <- {uiState with mousedownLink=Some(d);selectedLink=Some(d);selectedNode=None} )
         |> ignore
 
     svg
@@ -84,12 +85,20 @@ let restart(force : D3.Layout.Force<Link,Node>) =
         ?insert("svg:circle")
         ?attr("class", "node")
         ?attr("r", 5)
-        ?call(force.drag())
+        ?on("mousedown", fun d ->
+            uiState <- {uiState with mousedownNode=Some(d);selectedNode=Some(d);selectedLink=None;} 
+            //restart( force )
+            )
+        ?on("mouseup", fun d ->
+            uiState <- {uiState with mouseupNode=Some(d);selectedNode=Some(d);} 
+            //restart( force )
+            )
+        //?call(force.drag()) //this will make a node draggable
         |> ignore
 
     force.start();
 
-let mousemove() =
+let mousemove( force : D3.Layout.Force<Link,Node> ) =
     //current mouse coordinates
     let mouseX,mouseY =  D3.Globals.mouse(Browser.``event``.currentTarget)
 
@@ -109,10 +118,13 @@ let mousemove() =
         D3.Globals.select(".drag_line")
             ?attr("d", "M" + unbox<string>(x) + "," + unbox<string>(y) + "L" + unbox<string>(mouseX) + "," + unbox<string>(mouseY))
             |> ignore
+
+        //restart( force ) |> ignore
     //all other cases do nothing
     | _ -> ()
 
-let mousedown( force ) =
+
+let mousedown(force : D3.Layout.Force<Link,Node> ) =
     match uiState with
     //empty space md; deselect everything -- should we reset here?
     | {mousedownNode=None; mousedownLink=None} ->
@@ -124,16 +136,16 @@ let mousedown( force ) =
             | Some(x),Some(y) -> x,y
             | _ -> 0.0,0.0
 
-        D3.Globals.select(".drag_line")
+        D3.Globals.select(".drag_line_hidden")
             // ?style("marker-end", "url(#end-arrow)")
             // ?classed("hidden", false)
-            ?attr("class","link")
+            ?attr("class","drag_line")
             ?attr("d", "M" + unbox<string>(x) + "," + unbox<string>(y) + "L" + unbox<string>(x) + "," + unbox<string>(y))
             |> ignore
+
     //all other cases do nothing
     | _ -> ()
 
-    restart( force )
 
 let mouseup(force : D3.Layout.Force<Link,Node> ) =
     //hide drag line
@@ -162,8 +174,10 @@ let mouseup(force : D3.Layout.Force<Link,Node> ) =
     //clear mouse state
     resetMouseState()
 
+    //generally safe to assume we should restart force layout
     restart( force )
 
+//THIS IS NOW JUNK
 let click(force : D3.Layout.Force<Link,Node> ) =
 (*    let x,y = 
         match Browser.``event`` with
@@ -229,10 +243,10 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
                 ?attr("d", "M0,-5L10,0L0,5")
                 |> ignore
 
-        //drag line
+        //drag line; initially hidden; we carefully alternate between hidden and not
         svg
-            ?append("line")
-                ?attr("class", "drag_line")
+            ?append("svg:path")
+                ?attr("class", "drag_line_hidden")
                 ?attr("d", "M0,0L0,0")
                 |>ignore
 
@@ -263,7 +277,7 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
 
         //svg level event handlers
         svg
-            ?on("mousemove", mousemove)
+            ?on("mousemove", fun _ -> mousemove( force ) ) //we need force in the closure
             ?on("mousedown", fun _ -> mousedown( force ) ) //we need force in the closure
             ?on("mouseup", fun _ -> mouseup( force )) //we need force in the closure
             //?on("click", fun _ -> click( force )) //we need force in the closure
