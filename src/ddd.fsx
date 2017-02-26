@@ -14,6 +14,12 @@ limitations under the License.*)
 
 //NOTE: named ddd to avoid namespace collision with D3
 
+// THIS IS LEGACY, GRAPH.FSX IS THE CURRENT
+// THIS IS LEGACY, GRAPH.FSX IS THE CURRENT
+// THIS IS LEGACY, GRAPH.FSX IS THE CURRENT
+// THIS IS LEGACY, GRAPH.FSX IS THE CURRENT
+// THIS IS LEGACY, GRAPH.FSX IS THE CURRENT
+
 #r "../node_modules/fable-core/Fable.Core.dll"
 #load "../node_modules/fable-import-d3/Fable.Import.D3.fs"
 

@@ -19,6 +19,9 @@ limitations under the License.*)
 #load "../node_modules/fable-elmish/elmish.fs"
 #load "../node_modules/fable-import-d3/Fable.Import.D3.fs"
 #load "graph.fsx"
+#load "animation.fsx"
+#load "marytts.fsx"
+#load "braintrusttasks.fsx"
 
 open System
 open Fable.Core
@@ -30,7 +33,9 @@ open Fable.Helpers.ReactToolbox
 open Fable.Helpers.React.Props
 open Elmish
 open Graph
-
+open Animation
+open Marytts
+open Braintrusttasks
 let [<Literal>] ENTER_KEY = 13.
 
 module R = Fable.Helpers.React
@@ -46,70 +51,6 @@ let Ginger = importMember<unit->IGinger>("../app/js/ginger.js")
 let ginger = Ginger()
 //let ReactFauxDOM = importAll<obj> "react-faux-dom/lib/ReactFauxDOM"
 //let MyD3 = importAll<obj> "d3"
-
-type Duration =
-    {
-        phoneme : string
-        number : int
-        time : float
-    }
-(*"0"	PhonOh
-"@"	PhonAah
-"@U"	PhonAah
-"A"	PhonAah
-"AI"	PhonAah
-"D"	PhonDST
-"E"	PhonEe
-"EI"	PhonEh
-"I"	PhonI
-"N"	PhonN
-"O"	PhonOh 
-"OI"	PhonOohQ
-"S"	PhonDST
-"T"	PhonDST
-"U"	PhonW
-"V"	PhonFV
-"Z"	PhonDST
-"_"	PhonBMP
-"aU"	PhonAah
-"b"	PhonBMP
-"d"	PhonDST
-"dZ"	PhonChJSh
-"f"	PhonFV
-"g"	PhonK
-"h"	PhonK
-"i"	PhonI
-"j"	PhonI
-"k"	PhonK
-"l"	PhonN
-"m"	PhonBMP
-"n"	PhonN
-"p"	PhonBMP
-"r"	PhonR
-"r="	PhonR
-"s"	PhonDST
-"t"	PhonDST
-"tS"	PhonChJSh
-"u"	PhonW
-"v"	PhonFV
-"w"	PhonW
-"z"	PhonDST
-"{"	PhonTh*)
-let openPhonemes = Set.ofList["0"; "@"; "@U"; "A"; "AI"; "E"; "EI"; "I"; "O"; "OI"; "aU"; "i";"r=";]
-
-type IMary =
-    abstract ``process``: text:string*options:obj*callback:Func<obj,unit> -> unit 
-    abstract durations: text:string*options:obj*callback:Func<obj array,unit> -> unit 
-    abstract phonemes: words:string array*locale:string*voice:string*callback:Func<obj,unit> -> unit 
-    abstract voices: callback:Func<obj,unit> -> unit
-    abstract locales: callback:Func<obj,unit> -> unit
-    abstract inputTypes: callback:Func<obj,string array> -> unit
-    abstract outputTypes: callback:Func<obj,string array> -> unit
-    abstract audioFormats: callback:Func<obj,string array> -> unit
-
-//let Mary = importMember<string*int->IMary> "marytts"
-//http://localhost:59125/process?INPUT_TYPE=TEXT&AUDIO=WAVE_FILE&OUTPUT_TYPE=AUDIO&LOCALE=en-US&INPUT_TEXT=%22Hi%20there%22
-//let mary = Mary("localhost",59125)
 
 let Mary : obj = importMember "marytts"
 let mary : IMary = createNew Mary ("localhost", 59125) |> unbox
@@ -132,15 +73,24 @@ module S =
         Browser.localStorage.setItem(STORAGE_KEY, JS.JSON.stringify model)
 
 // MODEL
+type TaskState = | Reading | Gist | Prediction | Map | Questions
+
+
 type Model = {
     count:int
     tabIndex : int
     isChecked : bool
     info : string
     url : string
-    MorphValue : float
-    MorphName : string
+    MorphValue : float //old way
+    MorphName : string //old way
+    //idea is to map all visemes into 2 dimensions: jaw height and lip Position
+    //probably best way is to use these 2 visemes to create poses for the visemes below and then save out the values
+    //http://nir3d.com/handouts/Handouts%203D%20Animation%20II%20Applications%20-%20%28DIG3354C%29/LipSync%20-%20Making%20Characters%20Speak-%20Michael%20B_%20Comet.htm
+//    JawHeightMorph : VisemeMorph
+//    LipPositionMorph : VisemeMorph
     force: D3.Layout.Force<Link,Node>
+    TaskState : TaskState
     }
 
 
@@ -161,6 +111,7 @@ type Msg =
     | MorphNameChange of string
     | AddNode
     | Speak
+    | NextTask
 
 let emptyModel =  
     {    
@@ -169,9 +120,10 @@ let emptyModel =
         isChecked = true; 
         url = "http://www.google.com"; 
         info = "something here"; 
-        MorphValue = 0.1
-        MorphName = "jawrange"
-        force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> 
+        MorphValue = 0.1;
+        MorphName = "jawrange";
+        force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> ;
+        TaskState = Reading
     }
 
 //Initialize app and return initial model
@@ -181,9 +133,36 @@ let init = function
 
 
 // UPDATE
-/// Uses Fable's Emit to call JavaScript directly
-[<Emit("(new Audio($0)).play();")>]
-let sound(file:string) : unit = failwith "never"
+
+///Hacks for demo. We need to know the page number we are on so we can get the knowledge reps for this page
+let CurrentPage( url : string ) =        
+    let bookmarkIndex = url.LastIndexOf("#")
+    if bookmarkIndex > 0 then
+        let substring = url.Substring(bookmarkIndex, url.Length - bookmarkIndex )
+        unbox<int> substring 
+    else
+        0
+
+[<Emit("$0.toString('utf8').replace(/^\uFEFF/, '');")>]
+let removeBOM(someUtf:string) : string = failwith "never"
+
+let modRegex = new System.Text.RegularExpressions.Regex("Mod\d\d")
+let GetMod( modString : string ) = 
+    let m = modRegex.Match( modString )
+    if m.Success then
+        m.Groups.[0].Value
+    else
+        ""
+let tasks =
+    let json =  Node.fs.readFileSync("app/data/BrainTrustTasks.json", "utf8")
+    //because byte order marks are kept! http://stackoverflow.com/questions/24356713/node-js-readfile-error-with-utf8-encoded-file-on-windows
+    let pageTasksArr = removeBOM(json) |> JS.JSON.parse |> unbox<PageTasks array>
+    pageTasksArr |> Seq.map( fun pt -> (GetMod(pt.Source),pt.PageId), pt) |> Map.ofSeq
+
+//let t = tasks.[("Mod01",14)]
+
+//END Hacks
+
 let update (msg:Msg) (model:Model)  =
     let webView = Browser.document.getElementById("webview")
     match msg with
@@ -255,6 +234,16 @@ let update (msg:Msg) (model:Model)  =
             //Browser.console.log(audio)  
         )
         model
+    | NextTask ->
+        let nextTask =
+            match model.TaskState with
+            | Reading -> Gist
+            | Gist -> Questions
+            | Questions -> Map
+            | Map -> Prediction
+            | Prediction -> Reading
+        {model with TaskState=nextTask}
+
 
 // VIEW
 let internal onEnter msg dispatch =
@@ -320,6 +309,7 @@ let viewRightPaneOrg model dispatch =
     ]
 *)
 
+/// The left pane is always the browser, which is the reading area
 let viewLeftPane model dispatch =
     R.div [ Style [ GridArea "1 / 1 / 3 / 1"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");  ] ] [
         R.div [ ] [ //Style [ Display "Flex"; FlexDirection "Row"]] [ //trying to make all one row
@@ -337,40 +327,64 @@ let viewLeftPane model dispatch =
         ][]
         
     ]
-
-let viewRightPane model dispatch = 
-    let onClick msg =
-        OnClick <| fun _ -> msg |> dispatch 
-    R.div [] [
-        R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
-            R.div [ Id "renderer" ] []
-            R.p [] [ unbox "Alright. So the important thing to remember is that ..."]
-            //fun i -> MorphNameChange(unbox<string> i) |> dispatch );
-            RT.iconMenu  [ IconMenuProps.OnSelect(  unbox >> MorphNameChange >> dispatch );  Id "morph" ; IconMenuProps.Icon (U2.Case2 "more_vert"); IconMenuProps.Position "topLeft" ] [
-                RT.menuItem [ MenuItemProps.Value "eyes"; MenuItemProps.Caption "Eyes"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "expression"; MenuItemProps.Caption "Expression"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "jawrange"; MenuItemProps.Caption "Jaw Height"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "jawtwist"; MenuItemProps.Caption "Jaw Twist"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "symmetry"; MenuItemProps.Caption "Symmetry"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "lipcurl"; MenuItemProps.Caption "Lip Curl"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "sex"; MenuItemProps.Caption "Face Structure"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "width"; MenuItemProps.Caption "Jaw Width"  ] [  ]
-                RT.menuItem [ MenuItemProps.Value "tongue"; MenuItemProps.Caption "Tongue"  ] [  ]
-            ]
-            //SliderProps.OnChange ( MorphValueChange >> dispatch ); //needs JS.Function?
-            //SliderProps.Value model.MorphValue; //need to be able to change model
-            //RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( JS.Function.Create("i","function ($var11) { return dispatch(function (arg0) {return new Msg('MorphValueChange', [arg0]);}($var11));}") ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
-            RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( MorphValueChange >> dispatch ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
+/// The agent view must always be mounted, so when not in use it should be hidden
+let viewAgent model dispatch =
+    R.div [ Hidden (model.TaskState = Reading) ] [
+        R.div [ Id "renderer"] []
+        //R.p [] [ unbox "Alright. So the important thing to remember is that ..."]
+        //fun i -> MorphNameChange(unbox<string> i) |> dispatch );
+        RT.iconMenu  [ IconMenuProps.OnSelect(  unbox >> MorphNameChange >> dispatch );  Id "morph" ; IconMenuProps.Icon (U2.Case2 "more_vert"); IconMenuProps.Position "topLeft" ] [
+            RT.menuItem [ MenuItemProps.Value "eyes"; MenuItemProps.Caption "Eyes"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "expression"; MenuItemProps.Caption "Expression"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "jawrange"; MenuItemProps.Caption "Jaw Height"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "jawtwist"; MenuItemProps.Caption "Jaw Twist"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "symmetry"; MenuItemProps.Caption "Symmetry"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "lipcurl"; MenuItemProps.Caption "Lip Curl"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "lipsync"; MenuItemProps.Caption "Lip Sync"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "sex"; MenuItemProps.Caption "Face Structure"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "width"; MenuItemProps.Caption "Jaw Width"  ] [  ]
+            RT.menuItem [ MenuItemProps.Value "tongue"; MenuItemProps.Caption "Tongue"  ] [  ]
+            //RT.menuItem [ MenuItemProps.Value "teethopentop"; MenuItemProps.Caption "Teeth Open Top"  ] [  ]
+            //RT.menuItem [ MenuItemProps.Value "teethopenbot"; MenuItemProps.Caption "Teeth Open Bot"  ] [  ]
+            //RT.menuItem [ MenuItemProps.Value "teethsidebot"; MenuItemProps.Caption "Teeth Side Bot"  ] [  ]
+            //RT.menuItem [ MenuItemProps.Value "teethsidetop"; MenuItemProps.Caption "Teeth Side Top"  ] [  ]
         ]
-        R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
-            RT.button [ Label "Speak"; Raised true; onClick Speak ] []
-            RT.button [ Label "Add Node"; Raised true; onClick AddNode ] []
-            R.com<ForceDirectedGraph,_,_> 
-                { new ForceDirectedGraphProps with
-                    member __.force = model.force
-                } []
+        //SliderProps.OnChange ( MorphValueChange >> dispatch ); //needs JS.Function?
+        //SliderProps.Value model.MorphValue; //need to be able to change model
+        //RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( JS.Function.Create("i","function ($var11) { return dispatch(function (arg0) {return new Msg('MorphValueChange', [arg0]);}($var11));}") ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
+        RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( MorphValueChange >> dispatch ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
+        RT.button [ Label "Speak"; Raised true; onClick Speak dispatch ] []
+        //RT.button [ Label "Add Node"; Raised true; onClick AddNode dispatch ] []
+    ]
+let viewMapTask model dispatch =
+    R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
+        R.com<ForceDirectedGraph,_,_> 
+            { new ForceDirectedGraphProps with
+                member __.force = model.force
+            } []
+    ]
+    
+
+let viewReadTask model dispatch = 
+    R.div [ Style [  CSSProp.Display (U2.Case1 "table"); CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
+        R.div [ Style [  CSSProp.Display (U2.Case1 "table-cell"); CSSProp.VerticalAlign (U2.Case1 "middle");  ] ] [
+            RT.button [ Label "Teach"; Raised true; onClick NextTask dispatch;  Style [  CSSProp.VerticalAlign (U2.Case1 "middle"); CSSProp.Display (U2.Case1 "block");] ] []
         ]
     ]
+
+/// The right pane changes depending on the task; we could decompose it into two panes
+let viewRightPane model dispatch = 
+    R.div [] [
+        R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
+            
+            (viewAgent model dispatch)
+
+            (match model.TaskState with
+            | Reading ->  viewReadTask model dispatch 
+            | _ -> viewMapTask model dispatch)
+        ]
+    ]
+
 let viewMain model dispatch =
     //R.div [ Style [ Display "flex"; FlexDirection "row";  CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
     R.div [ Style [ Display "grid"; GridTemplateRows "30% 70%"; GridTemplateColumns "60% 40%"; CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%"); ] ] [
@@ -409,9 +423,7 @@ type App() as this =
         this.props <- true
 
     member this.render() =
-       viewMain this.state dispatch
-
-
+        viewMain this.state dispatch
 
 ReactDom.render(
         R.com<App,_,_> () [],

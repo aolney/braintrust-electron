@@ -274,8 +274,8 @@ let click(force : D3.Layout.Force<Link,Node> ) =
 let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
     let graph = Browser.document.createElement_div()
 
-    let width = 1280
-    let height = 800
+    let width = 700
+    let height = 700
 
     //configure the force. Note the empty model force is not configured and has goofy defaults
     force?charge(-500)?linkDistance(150)?size([|width; height|]) |> ignore
