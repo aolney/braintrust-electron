@@ -188,17 +188,24 @@ let MarySpeak(text:string) =
         text, 
         createObj[ "base64" ==> true],
         fun jsDurations  -> 
-            let durations = jsDurations |> Array.map( fun d -> { time=unbox(d?time)*1000.0;phoneme=unbox(d?phoneme);number=unbox(d?number) } )
+            let durations = jsDurations |> Array.map( fun d -> { time=unbox<float>(d?time)*1000.0;phoneme=unbox(d?phoneme);number=unbox(d?number) } )
             async{
+                //wait a little b/c it takes a sec for audio to render
+                do! Async.Sleep( durations.Length * 8 )
+
                 let mutable previousTime = 0.0
+                let mutable lastPhoneme = ""
                 for d in durations do
                     //need to smooth targets; check out xnagent code for this
                     if Set.contains d.phoneme openPhonemes then
                         ginger.doMorph( 0.3 ) 
                     else 
                         ginger.doMorph( 0.0 )
-                    do! Async.Sleep( (d.time - previousTime) |> int )
+                    //realised durations is broken; ignore pauses
+                    if lastPhoneme <> "_" then 
+                        do! Async.Sleep( (d.time - previousTime) |> int )
                     previousTime <- d.time
+                    lastPhoneme <- d.phoneme
             } |> Async.StartImmediate
             Browser.console.log(durations)  
     )

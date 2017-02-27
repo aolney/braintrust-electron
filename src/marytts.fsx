@@ -86,3 +86,57 @@ type Duration =
 ///For sock puppet lipsync
 let openPhonemes = Set.ofList["0"; "@"; "@U"; "A"; "AI"; "E"; "EI"; "I"; "O"; "OI"; "aU"; "i";"r=";]
 
+//we added this function to the node package
+(*
+		durations: function(text, options, callback) {
+			// If options are not provided let's hope the second parameter is the callback function
+			callback = typeof(options) === 'function' ? options : callback;
+			options = typeof(options) === 'object' ? options : {};
+
+			// Create the data to transmit
+			var data = [];
+			data['INPUT_TEXT'] = text;
+			data['INPUT_TYPE'] = (!('inputType' in options) || !(options.inputType in InputTypes)) ? 'TEXT' : options.inputType.toUpperCase();
+			data['OUTPUT_TYPE'] = (!('outputType' in options) || !(options.outputType in OutputTypes)) ? 'REALISED_DURATIONS' : options.outputType.toUpperCase();
+			data['LOCALE'] = (!('locale' in options)) ? 'en_US' : options.locale;
+//			data['VOICE'] = (!('voice' in options)) ? 'cmu-slt-hsmm' : options.voice;
+			data['AUDIO'] = (!('audio' in options) || !(options.audio in AudioFormats)) ? 'WAVE_FILE' : options.audio.toUpperCase();
+
+			if('voice' in options && options.voice.length > 0) data['VOICE'] = options.voice;
+		
+			request(
+				{
+					url: _url + 'process',
+					method: 'POST',
+					form: data,
+					encoding: data['OUTPUT_TYPE']==='AUDIO' ? null : 'utf8'
+				},
+				function (error, response, body) {
+					if(error) {
+						console.error(error);
+						return;
+					}
+					//console.log(response);
+					if (response.statusCode == 200) {
+					var lines = body.split('\n'),
+						timings = [];
+					for (var i = 1; i < lines.length; i++) {
+						var line = lines[i];
+						if(line.length > 0) {
+							var split = line.split(' ');
+							timings.push( {
+								'time': split[0],
+								'number': split[1],
+								'phoneme': split[2]
+							})
+						}
+					};
+						callback(timings);
+							
+					} else {
+						console.error(response.statusCode + ': ' + response.statusMessage);
+					}
+				}
+			);
+		},
+        *)
