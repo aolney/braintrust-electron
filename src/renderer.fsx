@@ -91,6 +91,8 @@ type Model = {
 //    LipPositionMorph : VisemeMorph
     force: D3.Layout.Force<Link,Node>
     TaskState : TaskState
+    PageTasks : PageTasks
+    DebugDrawerActive : bool
     }
 
 
@@ -110,20 +112,27 @@ type Msg =
     | MorphValueChange of float
     | MorphNameChange of string
     | AddNode
-    | Speak
+    | Speak of string
     | NextTask
+    | Answer of String
+    | FinalAnswer 
+    | ToggleDebugDrawer
 
+let emptyTask = { Source="error" ; PageId=0; Questions=[||]; Gist="well, I'm not sure"; Prediction="well, I'm not sure"; Triples=[||] }
 let emptyModel =  
     {    
         count = 0; 
         tabIndex = 0; 
         isChecked = true; 
-        url = "http://www.google.com"; 
+        //url = "http://www.google.com"; 
+        url = "file:///z/aolney/research_projects/braintrust/materials/NEETS/xhtml/Mod01%20-%20Matter%20Energy%20and%20DC.pdf-extracted/Mod01%20-%20Matter%20Energy%20and%20DC.pdf.xhtml-pretty.html"
         info = "something here"; 
         MorphValue = 0.1;
         MorphName = "jawrange";
         force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> ;
         TaskState = Reading
+        PageTasks = emptyTask
+        DebugDrawerActive = false
     }
 
 //Initialize app and return initial model
@@ -135,17 +144,13 @@ let init = function
 // UPDATE
 
 ///Hacks for demo. We need to know the page number we are on so we can get the knowledge reps for this page
-let CurrentPage( url : string ) =        
+let GetCurrentPage( url : string ) =        
     let bookmarkIndex = url.LastIndexOf("#")
     if bookmarkIndex > 0 then
-        let substring = url.Substring(bookmarkIndex, url.Length - bookmarkIndex )
-        unbox<int> substring 
+        let substring = url.Substring(bookmarkIndex + 1, url.Length - bookmarkIndex )
+        int substring  //|> unbox<int> 
     else
-        0
-
-[<Emit("$0.toString('utf8').replace(/^\uFEFF/, '');")>]
-let removeBOM(someUtf:string) : string = failwith "never"
-
+        -1
 let modRegex = new System.Text.RegularExpressions.Regex("Mod\d\d")
 let GetMod( modString : string ) = 
     let m = modRegex.Match( modString )
@@ -153,15 +158,65 @@ let GetMod( modString : string ) =
         m.Groups.[0].Value
     else
         ""
+
+[<Emit("$0.toString('utf8').replace(/^\uFEFF/, '');")>]
+let removeBOM(someUtf:string) : string = failwith "never"
 let tasks =
     let json =  Node.fs.readFileSync("app/data/BrainTrustTasks.json", "utf8")
     //because byte order marks are kept! http://stackoverflow.com/questions/24356713/node-js-readfile-error-with-utf8-encoded-file-on-windows
     let pageTasksArr = removeBOM(json) |> JS.JSON.parse |> unbox<PageTasks array>
     pageTasksArr |> Seq.map( fun pt -> (GetMod(pt.Source),pt.PageId), pt) |> Map.ofSeq
 
+let GetPageTasks(url:string) = 
+    let m = GetMod(url)
+    let p = GetCurrentPage(url)
+    match tasks.TryFind( (m,p) ) with
+    | Some( task ) -> task
+    | None ->     emptyTask
+
 //let t = tasks.[("Mod01",14)]
 
 //END Hacks
+let MarySpeak(text:string) = 
+    mary.``process``(
+        text, 
+        createObj[ "base64" ==> true], 
+        fun audio -> sound( audio |> unbox<string> )
+        //Browser.console.log(audio)  
+    )
+    mary.durations(
+        text, 
+        createObj[ "base64" ==> true],
+        fun jsDurations  -> 
+            let durations = jsDurations |> Array.map( fun d -> { time=unbox(d?time)*1000.0;phoneme=unbox(d?phoneme);number=unbox(d?number) } )
+            async{
+                let mutable previousTime = 0.0
+                for d in durations do
+                    //need to smooth targets; check out xnagent code for this
+                    if Set.contains d.phoneme openPhonemes then
+                        ginger.doMorph( 0.3 ) 
+                    else 
+                        ginger.doMorph( 0.0 )
+                    do! Async.Sleep( (d.time - previousTime) |> int )
+                    previousTime <- d.time
+            } |> Async.StartImmediate
+            Browser.console.log(durations)  
+    )
+
+
+let TriplesToSpeech(triples : Triple array) =
+    triples
+    |> Seq.map( fun t -> t.Start + " " + t.Edge + " " + if t.End.EndsWith(".") then t.End else t.End + ".")
+    |> Seq.map( fun t -> t.Replace("-LRB-","").Replace("-RRB-","") )
+    |> String.concat " "
+let GetTaskSpeech(tasks:PageTasks)(state: TaskState)=
+    match state with
+    | Reading -> [||]
+    | Gist  -> [|"Overall I think this is about"; tasks.Gist ; "What do you think?" |]
+    | Questions when  tasks.Questions.Length > 0 -> [|"I have a question."; tasks.Questions.[0].Question |]
+    | Map when  tasks.Triples.Length > 0 ->  [|"Alright. So the important things to remember are"; TriplesToSpeech(tasks.Triples); "Does that sound right?"|]
+    | Prediction -> [|"OK, the next important thing coming up is probably"; tasks.Prediction; "Do you agree?" |]
+    | _ -> [||]
 
 let update (msg:Msg) (model:Model)  =
     let webView = Browser.document.getElementById("webview")
@@ -208,43 +263,39 @@ let update (msg:Msg) (model:Model)  =
         model.force.nodes()?push(node) |> ignore
         restart( model.force ) |> ignore
         model
-    | Speak ->
-        mary.durations(
-            "Hello World", 
-            createObj[ "base64" ==> true],
-            fun jsDurations  -> 
-                let durations = jsDurations |> Array.map( fun d -> { time=unbox(d?time)*1000.0;phoneme=unbox(d?phoneme);number=unbox(d?number) } )
-                async{
-                    let mutable previousTime = 0.0
-                    for d in durations do
-                        //need to smooth targets; check out xnagent code for this
-                        if Set.contains d.phoneme openPhonemes then
-                            ginger.doMorph( 0.5 ) 
-                        else 
-                            ginger.doMorph( 0.0 )
-                        do! Async.Sleep( (d.time - previousTime) |> int )
-                        previousTime <- d.time
-                } |> Async.StartImmediate
-                Browser.console.log(durations)  
-        )
-        mary.``process``(
-            "Hello World", 
-            createObj[ "base64" ==> true], 
-            fun audio -> sound( audio |> unbox<string> )
-            //Browser.console.log(audio)  
-        )
+    | Speak(text) ->
+        MarySpeak(text)
         model
     | NextTask ->
+        let tasks = GetPageTasks(model.url)
         let nextTask =
             match model.TaskState with
             | Reading -> Gist
-            | Gist -> Questions
+            | Gist when tasks.Questions.Length > 0 -> Questions
             | Questions -> Map
             | Map -> Prediction
             | Prediction -> Reading
-        {model with TaskState=nextTask}
 
-
+        let speech = GetTaskSpeech tasks nextTask |> String.concat " "
+        MarySpeak(speech)
+        {model with TaskState=nextTask; PageTasks=tasks}
+    | FinalAnswer ->
+        //TODO record their answer, kick off next task?
+        model
+    | Answer(i) ->
+        let tasks = 
+            match model.TaskState with
+            | Gist -> {model.PageTasks with Gist=i}
+            | Prediction -> {model.PageTasks with Prediction=i}
+            | Questions -> 
+                let qaPairArr = [|{model.PageTasks.Questions.[0] with Answer=i}|]
+                {model.PageTasks with Questions=qaPairArr}
+        {model with PageTasks=tasks}
+    | ToggleDebugDrawer ->
+        match model.DebugDrawerActive with
+        | true -> {model with DebugDrawerActive=false}
+        | false -> {model with DebugDrawerActive=true}
+    | _ -> model
 // VIEW
 let internal onEnter msg dispatch =
     function 
@@ -253,6 +304,13 @@ let internal onEnter msg dispatch =
         dispatch msg
     | _ -> ()
     |> OnKeyDown
+
+let internal onMouseClick msg dispatch =
+    function 
+    | (ev:React.MouseEvent) ->
+        ev.preventDefault() 
+        dispatch msg
+    | _ -> ()
 
 let internal onClick msg dispatch =
     OnClick <| fun _ -> msg |> dispatch 
@@ -330,7 +388,9 @@ let viewLeftPane model dispatch =
 /// The agent view must always be mounted, so when not in use it should be hidden
 let viewAgent model dispatch =
     R.div [ Hidden (model.TaskState = Reading) ] [
+    //R.div [ ] [
         R.div [ Id "renderer"] []
+        //R.com<GingerAgent,_,_> [][] //we create a component so we can control should update
         //R.p [] [ unbox "Alright. So the important thing to remember is that ..."]
         //fun i -> MorphNameChange(unbox<string> i) |> dispatch );
         RT.iconMenu  [ IconMenuProps.OnSelect(  unbox >> MorphNameChange >> dispatch );  Id "morph" ; IconMenuProps.Icon (U2.Case2 "more_vert"); IconMenuProps.Position "topLeft" ] [
@@ -353,35 +413,140 @@ let viewAgent model dispatch =
         //SliderProps.Value model.MorphValue; //need to be able to change model
         //RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( JS.Function.Create("i","function ($var11) { return dispatch(function (arg0) {return new Msg('MorphValueChange', [arg0]);}($var11));}") ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
         RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( MorphValueChange >> dispatch ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
-        RT.button [ Label "Speak"; Raised true; onClick Speak dispatch ] []
+        //RT.button [ Label "Speak"; Raised true; onClick Speak dispatch ] []
         //RT.button [ Label "Add Node"; Raised true; onClick AddNode dispatch ] []
     ]
 let viewMapTask model dispatch =
+    let speech = GetTaskSpeech model.PageTasks model.TaskState |> String.concat " "
+
     R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
+        R.p [
+            //TODO: move font styles to css
+            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+        ] [ unbox speech]
+        RT.button [ Label "Add Node"; Raised true; onClick AddNode dispatch ] []
+        RT.button [ Label "Done"; Raised true; onClick NextTask dispatch ] []
         R.com<ForceDirectedGraph,_,_> 
             { new ForceDirectedGraphProps with
                 member __.force = model.force
             } []
     ]
     
-
 let viewReadTask model dispatch = 
-    R.div [ Style [  CSSProp.Display (U2.Case1 "table"); CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
-        R.div [ Style [  CSSProp.Display (U2.Case1 "table-cell"); CSSProp.VerticalAlign (U2.Case1 "middle");  ] ] [
-            RT.button [ Label "Teach"; Raised true; onClick NextTask dispatch;  Style [  CSSProp.VerticalAlign (U2.Case1 "middle"); CSSProp.Display (U2.Case1 "block");] ] []
-        ]
+    //R.div [ Style [  CSSProp.Display (U2.Case1 "table"); CSSProp.Width (U2.Case2 "100%"); CSSProp.Height (U2.Case2 "100%");] ] [
+     //R.div [ Style [  CSSProp.TextAlign (U2.Case1 "center"); CSSProp.Width (U2.Case2 "500px"); ] ] [
+         //went absolute with the button; nothing else seemed to work
+            RT.button [ Label "Teach"; Raised true; onClick NextTask dispatch;  
+                Style [CSSProp.Margin (U2.Case1 "0 auto");   CSSProp.Display (U2.Case1 "block"); CSSProp.Position (U2.Case1 "absolute"); CSSProp.Right (U2.Case2 "25%"); CSSProp.Top (U2.Case2 "50%"); CSSProp.Transform (U2.Case1 "translateY(-50%)");] ] []
+    //]
+    //]
+
+let viewGistTask model dispatch =
+    let speech = GetTaskSpeech model.PageTasks model.TaskState 
+    let prefix = speech.[0]
+    let suffix = speech.[2]
+    (*
+    let pageTasks = GetPageTasks(model.url) 
+    let prefix = "Overall I think this is about"
+    let suffix = "What do you think?"
+    MarySpeak( prefix + " " + model.PageTasks.Gist + " " + suffix)
+    *)
+    //Info(pageTasks.Gist) |> dispatch //VERY BAD
+    R.div [ Style [  CSSProp.MarginTop (U2.Case2 "2cm"); ]]  [
+        R.p [
+            //TODO: move font styles to css
+            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+        ] [ unbox prefix]
+        RT.input [ Type "text"; Label "answer here"; InputProps.Value model.PageTasks.Gist; InputProps.OnChange ( Answer >> dispatch ); onEnter NextTask dispatch ] []
+        R.p [
+            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+        ] [ unbox suffix]
     ]
+
+let viewPredictionTask model dispatch =
+    let speech = GetTaskSpeech model.PageTasks model.TaskState 
+    let prefix = speech.[0]
+    let suffix = speech.[2]
+(*
+    let pageTasks = GetPageTasks(model.url) 
+    let prefix = "OK, the next important thing coming up is probably"
+    let suffix = "Do you agree?"
+    MarySpeak( prefix + " " + model.PageTasks.Prediction + " " + suffix)
+    *)
+    //Info(pageTasks.Gist) |> dispatch //VERY BAD
+    R.div [ Style [  CSSProp.MarginTop (U2.Case2 "2cm"); ]]  [
+        R.p [
+            //TODO: move font styles to css
+            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+        ] [ unbox prefix]
+        RT.input [ Type "text"; Label "answer here"; InputProps.Value model.PageTasks.Prediction; InputProps.OnChange ( Answer >> dispatch ); onEnter NextTask dispatch ] []
+        R.p [
+            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+        ] [ unbox suffix]
+    ]
+
+let viewQuestionTask model dispatch =
+    let speech = GetTaskSpeech model.PageTasks model.TaskState 
+    let prefix = speech.[0]
+    let question = speech.[1]
+(*
+    let pageTasks = GetPageTasks(model.url) 
+    let prefix = "I have a question."
+    MarySpeak( prefix + " " + model.PageTasks.Questions.[0].Question )
+    let question = 
+        if model.PageTasks.Questions.Length > 0 then
+            model.PageTasks.Questions.[0].Question
+        else
+            "No, nevermind."
+            *)
+    //Info(pageTasks.Gist) |> dispatch //VERY BAD
+    R.div [ Style [  CSSProp.MarginTop (U2.Case2 "2cm"); ]]  [
+        R.p [
+            //TODO: move font styles to css
+            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+        ] [ unbox prefix]
+        RT.input [ Type "text"; Label "answer here"; InputProps.Value question; InputProps.OnChange ( Answer >> dispatch ); onEnter NextTask dispatch ] []
+    ]
+
+[<Emit("JSON.stringify($0, undefined, 2)")>]
+let prettyStringify (json): string = jsNative
 
 /// The right pane changes depending on the task; we could decompose it into two panes
 let viewRightPane model dispatch = 
     R.div [] [
         R.div [ Style [ GridArea "1 / 2 / 1 / 2"  ] ] [
-            
+            R.div [ Hidden ( not <| model.DebugDrawerActive) ] [
+                  R.pre[ Style[CSSProp.Color (U2.Case2 "red")] ] [
+                       (prettyStringify model) |> unbox
+                    ]
+             ]
+
+            //debug drawer doesn't work
+            (*
+            RT.navDrawer [ NavDrawerProps.Width "wide"; NavDrawerProps.Active model.DebugDrawerActive; 
+                NavDrawerProps.OnOverlayClick(onMouseClick ToggleDebugDrawer  dispatch) ] [ 
+                    R.pre[ Style[CSSProp.Color (U2.Case2 "red")] ] [
+                       (prettyStringify model) |> unbox
+                    ]
+            ]*)
+
+            //agent
             (viewAgent model dispatch)
 
+            //state dependent task
             (match model.TaskState with
             | Reading ->  viewReadTask model dispatch 
-            | _ -> viewMapTask model dispatch)
+            | Gist -> viewGistTask model dispatch
+            | Questions -> viewQuestionTask model dispatch
+            | Map -> viewMapTask model dispatch
+            | Prediction -> viewPredictionTask model dispatch
+            //| _ -> viewMapTask model dispatch
+            )
+
+            //trigger debug window
+            RT.button [ Label "Debug"; Raised true; onClick ToggleDebugDrawer dispatch;
+            Style [ CSSProp.Position (U2.Case1 "absolute"); CSSProp.Right (U2.Case2 "1%"); CSSProp.Bottom (U2.Case2 "1%"); ] ] []
+            
         ]
     ]
 
@@ -419,6 +584,7 @@ type App() as this =
             fun () -> UpdateNavigationUrl (unbox (webView?getURL()))  |> dispatch ) |> ignore
         //take care of ginger (TODO: react-three-renderer)
         ginger.init()
+        ginger.selectMorph("jawrange")
 
         this.props <- true
 

@@ -11,6 +11,20 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.*)
+#r "../node_modules/fable-core/Fable.Core.dll"
+#load "../node_modules/fable-import-react/Fable.Import.React.fs"
+#load "../node_modules/fable-import-react/Fable.Helpers.React.fs"
+
+open System
+open Fable.Core
+open Fable.Core.JsInterop
+open Fable.Import
+open Fable.Import.Node
+
+module R = Fable.Helpers.React
+open R.Props
+
+type RCom = React.ComponentClass<obj>
 
 ///Viseme morph state
 type VisemeMorph =
@@ -122,3 +136,19 @@ W	7
 #k g ng -- call/give/sing
 #p b m -- pen/boy/main
 *)
+
+/// At one point I thought it would be necessary to control the lifecycle of the Ginger agent, but so far that does not seem to be the case
+type GingerAgentState = { mounted : bool }
+
+type GingerAgent(props, ctx) as this =
+    inherit React.Component<obj, GingerAgentState>(props, ctx)
+    do this.state <- { mounted = false}
+
+    member this.componentDidMount() =
+        this.setState {this.state with mounted=true }
+        
+    //once mounted do not re-render
+    member this.shouldComponentUpdate () = not <| this.state.mounted
+
+    member this.render() =
+        R.div [ Id "renderer"] []
