@@ -93,6 +93,7 @@ type Model = {
     TaskState : TaskState
     PageTasks : PageTasks
     DebugDrawerActive : bool
+    TextAnswer : string
     }
 
 
@@ -112,6 +113,7 @@ type Msg =
     | MorphValueChange of float
     | MorphNameChange of string
     | AddNode
+    | AddLink
     | Speak of string
     | NextTask
     | Answer of String
@@ -126,13 +128,14 @@ let emptyModel =
         isChecked = true; 
         //url = "http://www.google.com"; 
         url = "file:///z/aolney/research_projects/braintrust/materials/NEETS/xhtml/Mod01%20-%20Matter%20Energy%20and%20DC.pdf-extracted/Mod01%20-%20Matter%20Energy%20and%20DC.pdf.xhtml-pretty.html"
-        info = "something here"; 
+        info = ""; 
         MorphValue = 0.1;
         MorphName = "jawrange";
         force  = D3.Layout.Globals.force() :?> D3.Layout.Force<Link,Node> ;
         TaskState = Reading
         PageTasks = emptyTask
         DebugDrawerActive = false
+        TextAnswer = ""
     }
 
 //Initialize app and return initial model
@@ -191,7 +194,7 @@ let MarySpeak(text:string) =
             let durations = jsDurations |> Array.map( fun d -> { time=unbox<float>(d?time)*1000.0;phoneme=unbox(d?phoneme);number=unbox(d?number) } )
             async{
                 //wait a little b/c it takes a sec for audio to render
-                do! Async.Sleep( durations.Length * 8 )
+                do! Async.Sleep( if durations.Length < 10 then 500 else durations.Length * 8 )
 
                 let mutable previousTime = 0.0
                 let mutable lastPhoneme = ""
@@ -210,21 +213,31 @@ let MarySpeak(text:string) =
             Browser.console.log(durations)  
     )
 
-
+let SafePeriod( text : string )=
+    if text.EndsWith(".") then text else text + "."
 let TriplesToSpeech(triples : Triple array) =
     triples
-    |> Seq.map( fun t -> t.Start + " " + t.Edge + " " + if t.End.EndsWith(".") then t.End else t.End + ".")
+    |> Seq.map( fun t -> t.Start + " " + t.Edge + " " + SafePeriod(t.End))
     |> Seq.map( fun t -> t.Replace("-LRB-","").Replace("-RRB-","") )
     |> String.concat " "
 let GetTaskSpeech(tasks:PageTasks)(state: TaskState)=
     match state with
     | Reading -> [||]
-    | Gist  -> [|"Overall I think this is about"; tasks.Gist ; "What do you think?" |]
+    | Gist  -> [|"Overall I think this is about"; SafePeriod(tasks.Gist) ; "What do you think?" |]
     | Questions when  tasks.Questions.Length > 0 -> [|"I have a question."; tasks.Questions.[0].Question |]
     | Map when  tasks.Triples.Length > 0 ->  [|"Alright. So the important things to remember are"; TriplesToSpeech(tasks.Triples); "Does that sound right?"|]
-    | Prediction -> [|"OK, the next important thing coming up is probably"; tasks.Prediction; "Do you agree?" |]
+    | Prediction -> [|"OK, the next important thing coming up is probably"; SafePeriod(tasks.Prediction); "Do you agree?" |]
     | _ -> [||]
 
+let CreateNode( label : string ) ( model : Model ) = 
+    let x,y = 300.0, 300.0 //totally arbitrary
+    let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None; label=Some(label)}
+    model.force.nodes()?push(node) |> ignore
+    //return; need reference to create links
+    node
+let CreateLink( label : string ) ( source : Node ) ( target : Node ) ( model : Model )=
+        let link = {source=source;target=target;label=Some(label)}
+        model.force.links()?push(link) |> ignore
 let update (msg:Msg) (model:Model)  =
     let webView = Browser.document.getElementById("webview")
     match msg with
@@ -266,8 +279,20 @@ let update (msg:Msg) (model:Model)  =
     | AddNode ->
         //it is important to mutate existing nodes. if we create new ones, e.g. with Array.map, existing links will break
         let x,y = 10.0, 10.0 //totally arbitrary
-        let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
+        let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None; label=Some("")}
         model.force.nodes()?push(node) |> ignore
+        restart( model.force ) |> ignore
+        model
+    | AddLink ->
+        //it is important to mutate existing nodes. if we create new ones, e.g. with Array.map, existing links will break
+        let x,y = 10.0, 10.0 //totally arbitrary
+        let s = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None; label=Some("start")}
+        let t = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None; label=Some("end")}
+        let l = {source=s;target=t;label=Some("edge")}
+
+        model.force.nodes()?push(s) |> ignore
+        model.force.nodes()?push(t) |> ignore
+        model.force.links()?push(l) |> ignore
         restart( model.force ) |> ignore
         model
     | Speak(text) ->
@@ -283,8 +308,32 @@ let update (msg:Msg) (model:Model)  =
             | Map -> Prediction
             | Prediction -> Reading
 
+        //must speak here not in render
         let speech = GetTaskSpeech tasks nextTask |> String.concat " "
         MarySpeak(speech)
+
+        //create map if needed
+        let detRegex = System.Text.RegularExpressions.Regex("^(an|the|a) ")
+        let NormalizeTriple( text : string)=
+            detRegex.Replace( text.Replace("-LRB-","").Replace("-RRB-","").ToLower(),"").Trim()
+
+        if nextTask = Map then
+            let cleanTriples = tasks.Triples |> Array.map( fun x -> {Start=NormalizeTriple(x.Start);Edge=x.Edge;End=NormalizeTriple(x.End)} )
+            let nodeMap = 
+                cleanTriples 
+                |> Array.collect( fun x -> [|x.Start;x.End|])
+                |> Array.distinct
+                |> Array.map( fun x -> x, CreateNode x model )
+                |> Map.ofArray
+            for triple in cleanTriples do
+                CreateLink triple.Edge nodeMap.[triple.Start] nodeMap.[triple.End] model
+            
+            (*for triple in tasks.Triples do
+                let source = CreateNode triple.Start model
+                let target = CreateNode triple.End model
+                CreateLink triple.Edge source target model*)
+            restart( model.force ) |> ignore
+
         {model with TaskState=nextTask; PageTasks=tasks}
     | FinalAnswer ->
         //TODO record their answer, kick off next task?
@@ -295,9 +344,9 @@ let update (msg:Msg) (model:Model)  =
             | Gist -> {model.PageTasks with Gist=i}
             | Prediction -> {model.PageTasks with Prediction=i}
             | Questions -> 
-                let qaPairArr = [|{model.PageTasks.Questions.[0] with Answer=i}|]
-                {model.PageTasks with Questions=qaPairArr}
-        {model with PageTasks=tasks}
+               let qaPairArr = [|{model.PageTasks.Questions.[0] with Answer=i}|]
+               {model.PageTasks with Questions=qaPairArr}
+        {model with PageTasks=tasks; TextAnswer=i}
     | ToggleDebugDrawer ->
         match model.DebugDrawerActive with
         | true -> {model with DebugDrawerActive=false}
@@ -428,11 +477,14 @@ let viewMapTask model dispatch =
 
     R.div [ Style [ GridArea "2 / 3 / 2 / 3"  ] ] [
         R.p [
-            //TODO: move font styles to css
-            Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
+            //TODO: move font styles to css CSSProp.MarginTop (U2.Case2 "1cm"); 
+            Style [ CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
         ] [ unbox speech]
-        RT.button [ Label "Add Node"; Raised true; onClick AddNode dispatch ] []
-        RT.button [ Label "Done"; Raised true; onClick NextTask dispatch ] []
+        R.div [ ]  [
+            RT.button [ Label "Add Node"; Raised true; onClick AddNode dispatch ] []
+            RT.button [ Label "Add Link"; Raised true; onClick AddLink dispatch ] []
+            RT.button [ Label "Done"; Raised true; onClick NextTask dispatch ] []
+        ]
         R.com<ForceDirectedGraph,_,_> 
             { new ForceDirectedGraphProps with
                 member __.force = model.force
@@ -511,8 +563,9 @@ let viewQuestionTask model dispatch =
         R.p [
             //TODO: move font styles to css
             Style [  CSSProp.FontFamily (U2.Case1 "'Roboto', sans-serif"); CSSProp.FontSize( U2.Case2 "1em"); ]
-        ] [ unbox prefix]
-        RT.input [ Type "text"; Label "answer here"; InputProps.Value question; InputProps.OnChange ( Answer >> dispatch ); onEnter NextTask dispatch ] []
+        ] [ unbox ( prefix + " " + question) ]
+        //InputProps.Value question;
+        RT.input [ Type "text"; Label "answer here";  InputProps.Value model.TextAnswer ; InputProps.OnChange ( Answer >> dispatch ); onEnter NextTask dispatch ] []
     ]
 
 [<Emit("JSON.stringify($0, undefined, 2)")>]

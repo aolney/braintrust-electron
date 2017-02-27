@@ -41,6 +41,7 @@ type Node =
         py : float option
         ``fixed``: bool option
         weight: float option
+        label : string option
     }
 
 //for directionality we replace link with new link where source and target are reversed
@@ -48,6 +49,7 @@ type Link =
     {
         source : Node
         target : Node
+        label : string option
     }
 
 
@@ -100,6 +102,7 @@ let rec restart(force : D3.Layout.Force<Link,Node>) =
         ?insert("svg:circle")
         ?attr("class", "node")
         ?attr("r", 5)
+        (*removed for demo
         ?on("mousedown", fun d ->
             uiState <- {uiState with mousedownNode=Some(d);selectedNode=Some(d);selectedLink=None;} 
             //restart( force )
@@ -108,9 +111,36 @@ let rec restart(force : D3.Layout.Force<Link,Node>) =
             uiState <- {uiState with mouseupNode=Some(d);selectedNode=Some(d);} 
             //restart( force )
             )
-        //?call(force.drag()) //this will make a node draggable
+            *)
+        //uncommented for demo
+        ?call(force.drag()) //this will make a node draggable
         |> ignore
     
+    //do labels
+    let nodeLabels = svg?selectAll(".node_label")?data(force.nodes())
+
+    nodeLabels
+        ?enter()
+        ?append("text")
+        ?attr("class", "node_label")
+        ?attr("x", 10)
+        ?attr("y", ".35em")
+        ?text( fun d ->  d.label )
+        ?style("stroke", "#FF0000")
+        |> ignore
+
+    let linkLabels = svg?selectAll(".link_label")?data(force.links())
+
+    linkLabels
+        ?enter()
+        ?append("text")
+        ?attr("class", "link_label")
+        ?attr("x", 10)
+        ?attr("y", ".35em")
+        ?text( fun d ->  d.label )
+        ?style("stroke", "#FF0000")
+        |> ignore
+
     //clear any nodes we deleted from layout
     nodes?exit()?remove() |> ignore
  
@@ -190,13 +220,13 @@ let mouseup(force : D3.Layout.Force<Link,Node> ) =
         resetMouseState()
     //up on another node; make link
     | {mousedownNode=Some(mD); mouseupNode=Some(mU)} ->
-        let link = { source=mD; target=mU }
+        let link = { source=mD; target=mU; label=None }
         force.links()?push(link) |> ignore
         uiState <- {uiState with selectedLink=Some(link); selectedNode=None}
     //up in empty space; make node
     | {mouseupNode=None; mousedownLink=None} ->
         let x,y =  D3.Globals.mouse(Browser.``event``.currentTarget)
-        let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None}
+        let node = {index = None; x = Some(x); y = Some(y); px = None; py = None; ``fixed``=None; weight = None; label=None}
         force.nodes()?push(node) |> ignore
         uiState <- {uiState with selectedNode=Some(node); selectedLink=None}
     //all other cases do nothing
@@ -243,7 +273,9 @@ let keydown(e: Browser.KeyboardEvent, force : D3.Layout.Force<Link,Node> ) =
     //required to return object?
     null
 
+//------------------------------------------------------------------
 //THIS IS NOW JUNK
+(*
 let click(force : D3.Layout.Force<Link,Node> ) =
     let x,y =  D3.Globals.mouse(Browser.``event``.currentTarget)
 
@@ -269,6 +301,7 @@ let click(force : D3.Layout.Force<Link,Node> ) =
     ) |> ignore
     
     restart( force )
+    *)
 
 //this is called exactly once to initialize the d3 graph for react
 let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
@@ -278,7 +311,9 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
     let height = 700
 
     //configure the force. Note the empty model force is not configured and has goofy defaults
-    force?charge(-500)?linkDistance(150)?size([|width; height|]) |> ignore
+    //force?charge(-500)?linkDistance(150)?size([|width; height|]) |> ignore
+    force?charge(-500)?linkDistance(150)?gravity(0.05)?size([|width; height|]) |> ignore
+
 
     let svg = 
         D3.Globals.select(graph)
@@ -334,14 +369,38 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
                 ?attr("cx", fun d ->  d.x)
                 ?attr("cy", fun d ->  d.y)
                 |> ignore
+
+            //labels
+            svg
+                ?selectAll(".node_label") 
+                //?selectAll("text") 
+                ?attr("x", fun d ->  d.x)
+                ?attr("y", fun d ->  d.y)
+                |> ignore
+
+            
+            svg
+                ?selectAll(".link_label") 
+                ?attr("x", fun d ->  
+                    match d.source.x, d.target.x with
+                    | Some(x1),Some(x2) -> (x1 + x2) / 2.0
+                    | _,_ -> 0.0 )
+                ?attr("y", fun d -> 
+                    match d.source.y, d.target.y with
+                    | Some(x1),Some(x2) -> (x1 + x2) / 2.0
+                    | _,_ -> 0.0 )
+                |> ignore
+
         ) |> ignore
 
 
         //svg level event handlers
         svg
             ?on("mousemove", fun _ -> mousemove( force ) ) //we need force in the closure
+            (*removed for demo
             ?on("mousedown", fun _ -> mousedown( force ) ) //we need force in the closure
             ?on("mouseup", fun _ -> mouseup( force )) //we need force in the closure
+            *)
             //?on("keydown", fun _ -> keydown( force )) //we need force in the closure
             //?on("click", fun _ -> click( force )) //we need force in the closure
             |> ignore
@@ -350,6 +409,7 @@ let createForceGraph( force : D3.Layout.Force<Link,Node> ) =
     )
     //react-d3-library pattern has use return the dom element
     graph
+    
 
 //Because we want to manipulate force programatically, it is global state we pass in as props
 type ForceDirectedGraphProps =

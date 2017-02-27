@@ -32,6 +32,10 @@
   cursor: crosshair;
 }
 
+.node text {
+  font: 9px helvetica;
+}
+
 .text {
   font: 10px sans-serif;
   pointer-events: none;
