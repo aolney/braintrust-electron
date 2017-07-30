@@ -31,10 +31,12 @@
     "three": "^0.81.2"
   },
   "devDependencies": {
+    "ajv":"^5.2.2",
     "autoprefixer": "^6.4.1",
     "css-loader": "^0.25.0",
     "extract-text-webpack-plugin": "^1.0.1",
     "fable-compiler": "^0.6.11",
+    "fable-import-fetch": "0.2.4",
     "fable-elmish": "^0.3.0",
     "fable-import-d3": "0.0.2",
     "fable-import-electron": "0.0.5",

@@ -15,15 +15,15 @@ limitations under the License.*)
 
 type QAPair =
     {
-        Question : string;
-        Answer : string;
+        question : string;
+        answer : string;
     }
 
 type Triple =
     {
-        Start : string
-        Edge : string
-        End : string
+        start : string
+        edge : string
+        ``end`` : string
     }
 
 type PageTasks =
@@ -34,4 +34,21 @@ type PageTasks =
         Gist : string
         Prediction : string
         Triples : Triple array
+    }
+
+//copied from server
+type Ability =
+    {
+        description : string;
+        score : float;
+    }
+
+type TaskSet =
+    {
+        user : string;
+        abilities : Ability array
+        questions : QAPair array
+        gist : string
+        prediction : string
+        triples : Triple array
     }

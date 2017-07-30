@@ -13,6 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.*)
 // Load Fable.Core and bindings to JS global objects
 #r "../node_modules/fable-core/Fable.Core.dll"
+//#r "../node_modules/fable-powerpack/Fable.PowerPack.dll"
+#load "../node_modules/fable-import-fetch/Fable.Import.Fetch.fs"
+#load "../node_modules/fable-import-fetch/Fable.Helpers.Fetch.fs"
 #load "../node_modules/fable-import-react/Fable.Import.React.fs"
 #load "../node_modules/fable-import-react/Fable.Helpers.React.fs"
 #load "../node_modules/fable-react-toolbox/Fable.Helpers.ReactToolbox.fs"
@@ -28,6 +31,11 @@ open Fable.Core
 open Fable.Core.JsInterop
 open Fable.Import
 open Fable.Import.Node
+open Fable.Import.Fetch
+open Fable.Helpers.Fetch
+//we must be at least Fable .7 to use the powerpack!
+//open Fable.PowerPack
+//open Fable.PowerPack.Fetch
 //open Fable.Import.Electron
 open Fable.Helpers.ReactToolbox
 open Fable.Helpers.React.Props
@@ -56,10 +64,101 @@ let Mary : obj = importMember "marytts"
 let mary : IMary = createNew Mary ("localhost", 59125) |> unbox
 let WebView = importDefault<RCom> "react-electron-webview" 
 
+let braintrustServerURL = "localhost:8080/" 
 
 let inline (!!) x = createObj x
 let inline (=>) x y = x ==> y
 
+//Given a uri, retrieve the pagetasks from the server
+let GetTaskSet queryUrl =
+    let getUrl = braintrustServerURL + "uri?uri=" + queryUrl
+    async {
+        let! taskSet = fetchAs<TaskSet> (getUrl,[])
+        return
+            {
+                Source = queryUrl
+                PageId = -1 //TODO sort out page id; are there implications for this being empty
+                Questions = taskSet.questions
+                Gist = taskSet.gist
+                Prediction = taskSet.prediction
+                Triples = taskSet.triples
+            }
+    } |> Async.RunSynchronously
+
+    //Must be Fable .7 to use the powerpack
+    //Fable.PowerPack.Fetch.fetch (getUrl, []) //getUrl []
+    // |> Promise.bind( fun res -> res.json())
+    // |> Promise.map( fun json ->
+    //     //let taskSet = Fable.Import.JS.JSON.parse( json ) |> unbox<TaskSet>
+    //     let taskSet = json |> unbox<TaskSet>
+    //     {
+    //         Source = queryUrl
+    //         PageId = -1 //TODO sort out page id; are there implications for this being empty
+    //         Questions = taskSet.questions
+    //         Gist = taskSet.gist
+    //         Prediction = taskSet.prediction
+    //         Triples = taskSet.triples
+    //     }
+    // )
+    //()
+    
+
+//TODO: share domain model for taskset across client and server
+//http://danielbachler.de/2016/12/10/f-sharp-on-the-frontend-and-the-backend.html
+let PostTaskSet ( pageTasks : PageTasks ) =
+    let postUrl = braintrustServerURL + "uri"
+    // let postJson =
+    //     !![
+    //         "questions" => pageTasks.Questions;
+    //         "gist" => pageTasks.Gist;
+    //         "prediction" => pageTasks.Prediction;
+    //         "triples" => pageTasks.Triples;
+    //         "uri" => pageTasks.Source; //TODO check this also has page #
+    //     ]
+    let formData = Fable.Import.Browser.FormData.Create()
+    formData.append("questions", pageTasks.Questions |> Fable.Import.JS.JSON.stringify )
+    formData.append("gist", pageTasks.Gist)
+    formData.append("prediction", pageTasks.Prediction)
+    formData.append("triples", pageTasks.Triples |> Fable.Import.JS.JSON.stringify )
+    formData.append("uri", pageTasks.Source )
+    //postman tests have been x-www-form-urlencoded
+    let props =
+        [
+            RequestProperties.Method HttpMethod.POST
+            RequestProperties.Headers [ContentType "application/x-www-form-urlencoded"]
+            RequestProperties.Body (unbox formData )
+        ]
+    async {
+        let! response = fetchAsync(postUrl,props)
+        return response
+    } |> Async.RunSynchronously
+    
+    //Must be Fable .7 to use the powerpack  
+    // let promise =
+    //     //postman tests have been x-www-form-urlencoded
+    //     let props =
+    //         [
+    //             Fetch_types.RequestProperties.Method Fetch_types.HttpMethod.POST
+    //             Fetch_types.RequestProperties.Headers [Fetch_types.ContentType "application/x-www-form-urlencoded"]
+    //             Fetch_types.RequestProperties.Body (unbox formData )
+    //         ]
+    //     Fable.PowerPack.Fetch.fetch (postUrl, props) //postUrl props
+    //     |> Fable.PowerPack.Promise.bind
+    //         (fun response ->
+    //             response.json()
+    //         )
+    //     |> Fable.PowerPack.Promise.catch
+    //         (fun err ->
+    //           h (ServerResponseError err.Message)
+    //         )
+    //()
+
+
+// let fetchEntity url =
+//     promise {
+//         let! fetched = fetch url []
+//         let! response = fetched.text()
+//         return response }
 
 // Local storage interface
 module S =
@@ -217,14 +316,14 @@ let SafePeriod( text : string )=
     if text.EndsWith(".") then text else text + "."
 let TriplesToSpeech(triples : Triple array) =
     triples
-    |> Seq.map( fun t -> t.Start + " " + t.Edge + " " + SafePeriod(t.End))
+    |> Seq.map( fun t -> t.start + " " + t.edge + " " + SafePeriod(t.``end``))
     |> Seq.map( fun t -> t.Replace("-LRB-","").Replace("-RRB-","") )
     |> String.concat " "
 let GetTaskSpeech(tasks:PageTasks)(state: TaskState)=
     match state with
     | Reading -> [||]
     | Gist  -> [|"Overall I think this is about"; SafePeriod(tasks.Gist) ; "What do you think?" |]
-    | Questions when  tasks.Questions.Length > 0 -> [|"I have a question."; tasks.Questions.[0].Question |]
+    | Questions when  tasks.Questions.Length > 0 -> [|"I have a question."; tasks.Questions.[0].question |]
     | Map when  tasks.Triples.Length > 0 ->  [|"Alright. So the important things to remember are"; TriplesToSpeech(tasks.Triples); "Does that sound right?"|]
     | Prediction -> [|"OK, the next important thing coming up is probably"; SafePeriod(tasks.Prediction); "Do you agree?" |]
     | _ -> [||]
@@ -299,7 +398,8 @@ let update (msg:Msg) (model:Model)  =
         MarySpeak(text)
         model
     | NextTask ->
-        let tasks = GetPageTasks(model.url)
+        let tasks = GetTaskSet model.url
+        //let tasks = GetPageTasks(model.url)
         let nextTask =
             match model.TaskState with
             | Reading -> Gist
@@ -308,6 +408,7 @@ let update (msg:Msg) (model:Model)  =
             | Map -> Prediction
             | Prediction -> Reading
 
+            
         //must speak here not in render
         let speech = GetTaskSpeech tasks nextTask |> String.concat " "
         MarySpeak(speech)
@@ -318,21 +419,25 @@ let update (msg:Msg) (model:Model)  =
             detRegex.Replace( text.Replace("-LRB-","").Replace("-RRB-","").ToLower(),"").Trim()
 
         if nextTask = Map then
-            let cleanTriples = tasks.Triples |> Array.map( fun x -> {Start=NormalizeTriple(x.Start);Edge=x.Edge;End=NormalizeTriple(x.End)} )
+            let cleanTriples = tasks.Triples |> Array.map( fun x -> {start=NormalizeTriple(x.start);edge=x.edge;``end``=NormalizeTriple(x.``end``)} )
             let nodeMap = 
                 cleanTriples 
-                |> Array.collect( fun x -> [|x.Start;x.End|])
+                |> Array.collect( fun x -> [|x.start;x.``end``|])
                 |> Array.distinct
                 |> Array.map( fun x -> x, CreateNode x model )
                 |> Map.ofArray
             for triple in cleanTriples do
-                CreateLink triple.Edge nodeMap.[triple.Start] nodeMap.[triple.End] model
+                CreateLink triple.edge nodeMap.[triple.start] nodeMap.[triple.``end``] model
             
             (*for triple in tasks.Triples do
                 let source = CreateNode triple.Start model
                 let target = CreateNode triple.End model
                 CreateLink triple.Edge source target model*)
             restart( model.force ) |> ignore
+
+        //update the server; not sure this is the best place, see "FinalAnswer" below
+        if nextTask = Reading && model.PageTasks <> emptyTask then
+             PostTaskSet model.PageTasks |> ignore
 
         {model with TaskState=nextTask; PageTasks=tasks}
     | FinalAnswer ->
@@ -344,7 +449,7 @@ let update (msg:Msg) (model:Model)  =
             | Gist -> {model.PageTasks with Gist=i}
             | Prediction -> {model.PageTasks with Prediction=i}
             | Questions -> 
-               let qaPairArr = [|{model.PageTasks.Questions.[0] with Answer=i}|]
+               let qaPairArr = [|{model.PageTasks.Questions.[0] with answer=i}|]
                {model.PageTasks with Questions=qaPairArr}
         {model with PageTasks=tasks; TextAnswer=i}
     | ToggleDebugDrawer ->
@@ -655,3 +760,7 @@ ReactDom.render(
         R.com<App,_,_> () [],
         Browser.document.getElementById("app")
     ) |> ignore
+
+//webpack issues
+// need     "ajv":"^5.2.2" to handle "Module parse failed"
+// also update this in package.json of node_modules/har_validator and run npm install from there
