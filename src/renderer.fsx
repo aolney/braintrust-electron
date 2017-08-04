@@ -64,101 +64,10 @@ let Mary : obj = importMember "marytts"
 let mary : IMary = createNew Mary ("localhost", 59125) |> unbox
 let WebView = importDefault<RCom> "react-electron-webview" 
 
-let braintrustServerURL = "localhost:8080/" 
+let braintrustServerURL = "http://localhost:8080/" 
 
 let inline (!!) x = createObj x
 let inline (=>) x y = x ==> y
-
-//Given a uri, retrieve the pagetasks from the server
-let GetTaskSet queryUrl =
-    let getUrl = braintrustServerURL + "uri?uri=" + queryUrl
-    async {
-        let! taskSet = fetchAs<TaskSet> (getUrl,[])
-        return
-            {
-                Source = queryUrl
-                PageId = -1 //TODO sort out page id; are there implications for this being empty
-                Questions = taskSet.questions
-                Gist = taskSet.gist
-                Prediction = taskSet.prediction
-                Triples = taskSet.triples
-            }
-    } |> Async.RunSynchronously
-
-    //Must be Fable .7 to use the powerpack
-    //Fable.PowerPack.Fetch.fetch (getUrl, []) //getUrl []
-    // |> Promise.bind( fun res -> res.json())
-    // |> Promise.map( fun json ->
-    //     //let taskSet = Fable.Import.JS.JSON.parse( json ) |> unbox<TaskSet>
-    //     let taskSet = json |> unbox<TaskSet>
-    //     {
-    //         Source = queryUrl
-    //         PageId = -1 //TODO sort out page id; are there implications for this being empty
-    //         Questions = taskSet.questions
-    //         Gist = taskSet.gist
-    //         Prediction = taskSet.prediction
-    //         Triples = taskSet.triples
-    //     }
-    // )
-    //()
-    
-
-//TODO: share domain model for taskset across client and server
-//http://danielbachler.de/2016/12/10/f-sharp-on-the-frontend-and-the-backend.html
-let PostTaskSet ( pageTasks : PageTasks ) =
-    let postUrl = braintrustServerURL + "uri"
-    // let postJson =
-    //     !![
-    //         "questions" => pageTasks.Questions;
-    //         "gist" => pageTasks.Gist;
-    //         "prediction" => pageTasks.Prediction;
-    //         "triples" => pageTasks.Triples;
-    //         "uri" => pageTasks.Source; //TODO check this also has page #
-    //     ]
-    let formData = Fable.Import.Browser.FormData.Create()
-    formData.append("questions", pageTasks.Questions |> Fable.Import.JS.JSON.stringify )
-    formData.append("gist", pageTasks.Gist)
-    formData.append("prediction", pageTasks.Prediction)
-    formData.append("triples", pageTasks.Triples |> Fable.Import.JS.JSON.stringify )
-    formData.append("uri", pageTasks.Source )
-    //postman tests have been x-www-form-urlencoded
-    let props =
-        [
-            RequestProperties.Method HttpMethod.POST
-            RequestProperties.Headers [ContentType "application/x-www-form-urlencoded"]
-            RequestProperties.Body (unbox formData )
-        ]
-    async {
-        let! response = fetchAsync(postUrl,props)
-        return response
-    } |> Async.RunSynchronously
-    
-    //Must be Fable .7 to use the powerpack  
-    // let promise =
-    //     //postman tests have been x-www-form-urlencoded
-    //     let props =
-    //         [
-    //             Fetch_types.RequestProperties.Method Fetch_types.HttpMethod.POST
-    //             Fetch_types.RequestProperties.Headers [Fetch_types.ContentType "application/x-www-form-urlencoded"]
-    //             Fetch_types.RequestProperties.Body (unbox formData )
-    //         ]
-    //     Fable.PowerPack.Fetch.fetch (postUrl, props) //postUrl props
-    //     |> Fable.PowerPack.Promise.bind
-    //         (fun response ->
-    //             response.json()
-    //         )
-    //     |> Fable.PowerPack.Promise.catch
-    //         (fun err ->
-    //           h (ServerResponseError err.Message)
-    //         )
-    //()
-
-
-// let fetchEntity url =
-//     promise {
-//         let! fetched = fetch url []
-//         let! response = fetched.text()
-//         return response }
 
 // Local storage interface
 module S =
@@ -197,6 +106,7 @@ type Model = {
 
 
 type Msg =
+    | BatchLoad
     | Increment
     | Decrement
     | TabIndex of int
@@ -254,6 +164,7 @@ let GetCurrentPage( url : string ) =
     else
         -1
 let modRegex = new System.Text.RegularExpressions.Regex("Mod\d\d")
+//Get the NEETS module, e.g. Mod01
 let GetMod( modString : string ) = 
     let m = modRegex.Match( modString )
     if m.Success then
@@ -261,6 +172,7 @@ let GetMod( modString : string ) =
     else
         ""
 
+//handle utf8 encoding nastiness (byte order mark)
 [<Emit("$0.toString('utf8').replace(/^\uFEFF/, '');")>]
 let removeBOM(someUtf:string) : string = failwith "never"
 let tasks =
@@ -278,6 +190,145 @@ let GetPageTasks(url:string) =
 
 //let t = tasks.[("Mod01",14)]
 
+//Given a uri, retrieve the pagetasks from the server
+let GetTaskSet queryUrl =
+    let getUrl = braintrustServerURL + "uri?uri=" + queryUrl
+    let mutable pageTasks = emptyTask
+    async {
+        let! taskSet = fetchAs<TaskSet> (getUrl,[])
+        pageTasks <- 
+            {
+                Source = queryUrl
+                PageId = -1 //TODO sort out page id; are there implications for this being empty
+                Questions = taskSet.questions
+                Gist = taskSet.gist
+                Prediction = taskSet.prediction
+                Triples = taskSet.triples
+            }
+    } |> Async.StartImmediate // Async.StartAsPromise |> Async.AwaitPromise
+    //see https://github.com/fable-compiler/Fable/blob/68813aaf94c1c5d27f75a049dc231ebe06845c1e/src/tests/Main/AsyncTests.fs
+    //return
+    pageTasks
+
+    //Must be Fable .7 to use the powerpack
+    //Fable.PowerPack.Fetch.fetch (getUrl, []) //getUrl []
+    // |> Promise.bind( fun res -> res.json())
+    // |> Promise.map( fun json ->
+    //     //let taskSet = Fable.Import.JS.JSON.parse( json ) |> unbox<TaskSet>
+    //     let taskSet = json |> unbox<TaskSet>
+    //     {
+    //         Source = queryUrl
+    //         PageId = -1 //TODO sort out page id; are there implications for this being empty
+    //         Questions = taskSet.questions
+    //         Gist = taskSet.gist
+    //         Prediction = taskSet.prediction
+    //         Triples = taskSet.triples
+    //     }
+    // )
+    //()
+    
+let UriEncodeDict( d : System.Collections.Generic.IDictionary<string,string>) =
+    d
+    |> Seq.map( fun pair -> Fable.Import.JS.encodeURIComponent(pair.Key) + "=" + Fable.Import.JS.encodeURIComponent(pair.Value) )
+    |> String.concat "&"
+
+//TODO: share domain model for taskset across client and server
+//http://danielbachler.de/2016/12/10/f-sharp-on-the-frontend-and-the-backend.html
+let PostTaskSet ( pageTasks : PageTasks ) =
+    let postUrl = braintrustServerURL + "uri"
+    // let postJson =
+    //     !![
+    //         "questions" => pageTasks.Questions;
+    //         "gist" => pageTasks.Gist;
+    //         "prediction" => pageTasks.Prediction;
+    //         "triples" => pageTasks.Triples;
+    //         "uri" => pageTasks.Source; //TODO check this also has page #
+    //     ]
+    //formdata seems to force multipart form
+    //let formData = Fable.Import.Browser.FormData.Create()
+    // formData.append("questions", pageTasks.Questions |> Fable.Import.JS.JSON.stringify )
+    // formData.append("gist", pageTasks.Gist)
+    // formData.append("prediction", pageTasks.Prediction)
+    // formData.append("triples", pageTasks.Triples |> Fable.Import.JS.JSON.stringify )
+    // formData.append("uri", pageTasks.Source )
+
+    //some issues with captitalization messing up shared domain model b/w client and server
+    let questions = (pageTasks.Questions |> Fable.Import.JS.JSON.stringify )
+    let triples = (pageTasks.Triples |> Fable.Import.JS.JSON.stringify )
+    let formData = 
+        dict 
+            [
+                ("questions", questions.Replace("\"Question\"","\"question\"").Replace("\"Answer\"","\"answer\"") )
+                ("gist", pageTasks.Gist)
+                ("prediction", pageTasks.Prediction)
+                ("triples", triples.Replace("\"Start\"","\"start\"").Replace("\"Edge\"","\"edge\"").Replace("\"End\"","\"end\"") )
+                ("uri", pageTasks.Source )
+            ]
+
+    //postman tests have been x-www-form-urlencoded
+    let props =
+        [
+            RequestProperties.Method HttpMethod.POST
+            //these headers have no effect on x-www-form-urlencoded when Browswer.FormData used
+            RequestProperties.Headers 
+                [
+                    ContentType "application/x-www-form-urlencoded"
+                    unbox EncType "application/x-www-form-urlencoded"
+                ]
+            RequestProperties.Body ( formData |> UriEncodeDict |> unbox )
+            RequestProperties.Credentials RequestCredentials.Include //otherwise our auth cookie is not sent
+        ]
+    async {
+        let! response = fetchAsync(postUrl,props)
+        return ()
+    } |> Async.StartImmediate //start as promise?
+    
+    //Must be Fable .7 to use the powerpack  
+    // let promise =
+    //     //postman tests have been x-www-form-urlencoded
+    //     let props =
+    //         [
+    //             Fetch_types.RequestProperties.Method Fetch_types.HttpMethod.POST
+    //             Fetch_types.RequestProperties.Headers [Fetch_types.ContentType "application/x-www-form-urlencoded"]
+    //             Fetch_types.RequestProperties.Body (unbox formData )
+    //         ]
+    //     Fable.PowerPack.Fetch.fetch (postUrl, props) //postUrl props
+    //     |> Fable.PowerPack.Promise.bind
+    //         (fun response ->
+    //             response.json()
+    //         )
+    //     |> Fable.PowerPack.Promise.catch
+    //         (fun err ->
+    //           h (ServerResponseError err.Message)
+    //         )
+    //()
+
+
+// let fetchEntity url =
+//     promise {
+//         let! fetched = fetch url []
+//         let! response = fetched.text()
+//         return response }
+
+//This is a hack to do batch db loading of the NEETS
+//assumes we are already authenticated!
+let batchLoad() =
+    //create a new pageTask record with a "correct" url that points to a reachable web address
+    let transformUrl ( pt : PageTasks) =
+        let t1 = pt.Source.Replace("/z/aolney/research_projects/braintrust/materials/NEETS/xhtml/","http://www.andrewmolney.name/neets-web/")
+        let suffixStart = t1.IndexOf("json")
+        let t2 = t1.Substring(0, suffixStart - 1)
+        let t3 = t2 + "-pretty.html#" + pt.PageId.ToString()
+        let t4 = Fable.Import.JS.encodeURIComponent t3
+        { pt with Source = t4}
+    //iterate over tasks and update the appropriate url
+    for kvPair in tasks do
+        let rawPt = kvPair.Value
+        let pageTasks = transformUrl rawPt
+        PostTaskSet pageTasks
+        ()
+    ()
+    
 //END Hacks
 let MarySpeak(text:string) = 
     mary.``process``(
@@ -340,6 +391,9 @@ let CreateLink( label : string ) ( source : Node ) ( target : Node ) ( model : M
 let update (msg:Msg) (model:Model)  =
     let webView = Browser.document.getElementById("webview")
     match msg with
+    | BatchLoad ->
+        batchLoad()
+        model
     | Increment ->
         { model with count = model.count + 1 }
     | Decrement ->
@@ -576,6 +630,7 @@ let viewAgent model dispatch =
         RT.slider [ SliderProps.Value model.MorphValue; SliderProps.OnChange ( MorphValueChange >> dispatch ); Id "range"; SliderProps.Editable true; SliderProps.Min 0.0; SliderProps.Max 1.0;   SliderProps.Step 0.01  ] []
         //RT.button [ Label "Speak"; Raised true; onClick Speak dispatch ] []
         //RT.button [ Label "Add Node"; Raised true; onClick AddNode dispatch ] []
+
     ]
 let viewMapTask model dispatch =
     let speech = GetTaskSpeech model.PageTasks model.TaskState |> String.concat " "
@@ -709,7 +764,9 @@ let viewRightPane model dispatch =
             )
 
             //trigger debug window
-            RT.button [ Label "Debug"; Raised true; onClick ToggleDebugDrawer dispatch;
+            // RT.button [ Label "Debug"; Raised true; onClick ToggleDebugDrawer dispatch;
+            // Style [ CSSProp.Position (U2.Case1 "absolute"); CSSProp.Right (U2.Case2 "1%"); CSSProp.Bottom (U2.Case2 "1%"); ] ] []
+            RT.button [ Label "Batch load"; Raised true; onClick BatchLoad dispatch;
             Style [ CSSProp.Position (U2.Case1 "absolute"); CSSProp.Right (U2.Case2 "1%"); CSSProp.Bottom (U2.Case2 "1%"); ] ] []
             
         ]
