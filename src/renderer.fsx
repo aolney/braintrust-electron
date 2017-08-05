@@ -175,7 +175,7 @@ let GetMod( modString : string ) =
 //handle utf8 encoding nastiness (byte order mark)
 [<Emit("$0.toString('utf8').replace(/^\uFEFF/, '');")>]
 let removeBOM(someUtf:string) : string = failwith "never"
-let tasks =
+let tasksFromFile =
     let json =  Node.fs.readFileSync("app/data/BrainTrustTasks.json", "utf8")
     //because byte order marks are kept! http://stackoverflow.com/questions/24356713/node-js-readfile-error-with-utf8-encoded-file-on-windows
     let pageTasksArr = removeBOM(json) |> JS.JSON.parse |> unbox<PageTasks array>
@@ -184,31 +184,63 @@ let tasks =
 let GetPageTasks(url:string) = 
     let m = GetMod(url)
     let p = GetCurrentPage(url)
-    match tasks.TryFind( (m,p) ) with
+    match tasksFromFile.TryFind( (m,p) ) with
     | Some( task ) -> task
     | None ->     emptyTask
 
 //let t = tasks.[("Mod01",14)]
 
+
+// Send HTTP request SYNCHRONOUSLY  (temporary hack)
+// https://github.com/tpetricek/fable-tutorial/blob/master/3-drawing/client/helpers.fsx
+// https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/Synchronous_and_Asynchronous_Requests
+let GetRequestSynchronous url  =
+    let xhr = Fable.Import.Browser.XMLHttpRequest.Create()
+    xhr.``open``("GET", url, false) //false makes the request synchronous
+    xhr.send(None)
+    if xhr.status = 200. then
+        Some( xhr.responseText )
+    else
+        None
+
 //Given a uri, retrieve the pagetasks from the server
 let GetTaskSet queryUrl =
-    let getUrl = braintrustServerURL + "uri?uri=" + queryUrl
-    let mutable pageTasks = emptyTask
-    async {
-        let! taskSet = fetchAs<TaskSet> (getUrl,[])
-        pageTasks <- 
-            {
-                Source = queryUrl
-                PageId = -1 //TODO sort out page id; are there implications for this being empty
-                Questions = taskSet.questions
-                Gist = taskSet.gist
-                Prediction = taskSet.prediction
-                Triples = taskSet.triples
-            }
-    } |> Async.StartImmediate // Async.StartAsPromise |> Async.AwaitPromise
-    //see https://github.com/fable-compiler/Fable/blob/68813aaf94c1c5d27f75a049dc231ebe06845c1e/src/tests/Main/AsyncTests.fs
-    //return
-    pageTasks
+    let decodedQueryUrl = Fable.Import.JS.decodeURIComponent( queryUrl )
+    let getUrl = braintrustServerURL + "uri?uri=" + Fable.Import.JS.encodeURIComponent( decodedQueryUrl )
+    match GetRequestSynchronous getUrl with 
+    | Some( json ) -> 
+        let taskSet = json |> JS.JSON.parse |> unbox<TaskSet>
+        //ofJson<TaskSet> json //throws error, perhaps b/c of mongo ids
+        {
+            Source = queryUrl
+            PageId = -1 //TODO sort out page id; are there implications for this being empty
+            Questions = taskSet.questions
+            Gist = taskSet.gist
+            Prediction = taskSet.prediction
+            Triples = taskSet.triples
+        }
+    | None -> emptyTask
+
+
+    //TODO async problem; we immediately complete and continue; suggest switch to elm commands (total refactor of update function)
+        //https://lucasmreis.github.io/blog/from-elm-to-fable/
+    //     //https://github.com/Banashek/Universal-FSharp-Samples/blob/master/JsonApi/src/client/App.fs#L29 
+    // let mutable pageTasks = emptyTask
+    // async {
+    //     let! taskSet = fetchAs<TaskSet> (getUrl,[RequestProperties.Credentials RequestCredentials.Include ])
+    //     pageTasks <- 
+    //         {
+    //             Source = queryUrl
+    //             PageId = -1 //TODO sort out page id; are there implications for this being empty
+    //             Questions = taskSet.questions
+    //             Gist = taskSet.gist
+    //             Prediction = taskSet.prediction
+    //             Triples = taskSet.triples
+    //         }
+    // } |> Async.StartImmediate // Async.StartAsPromise |> Async.AwaitPromise
+    // //see https://github.com/fable-compiler/Fable/blob/68813aaf94c1c5d27f75a049dc231ebe06845c1e/src/tests/Main/AsyncTests.fs
+    // //return
+    // pageTasks
 
     //Must be Fable .7 to use the powerpack
     //Fable.PowerPack.Fetch.fetch (getUrl, []) //getUrl []
@@ -227,10 +259,12 @@ let GetTaskSet queryUrl =
     // )
     //()
     
+ //Encode dictionary as query string WITH uri encoded
 let UriEncodeDict( d : System.Collections.Generic.IDictionary<string,string>) =
     d
     |> Seq.map( fun pair -> Fable.Import.JS.encodeURIComponent(pair.Key) + "=" + Fable.Import.JS.encodeURIComponent(pair.Value) )
     |> String.concat "&"
+
 
 //TODO: share domain model for taskset across client and server
 //http://danielbachler.de/2016/12/10/f-sharp-on-the-frontend-and-the-backend.html
@@ -262,7 +296,7 @@ let PostTaskSet ( pageTasks : PageTasks ) =
                 ("gist", pageTasks.Gist)
                 ("prediction", pageTasks.Prediction)
                 ("triples", triples.Replace("\"Start\"","\"start\"").Replace("\"Edge\"","\"edge\"").Replace("\"End\"","\"end\"") )
-                ("uri", pageTasks.Source )
+                ("uri", pageTasks.Source |> Fable.Import.JS.decodeURIComponent ) //we have to be careful and normalize so that this is appended to the right uri instead of creating a new one
             ]
 
     //postman tests have been x-www-form-urlencoded
@@ -273,9 +307,10 @@ let PostTaskSet ( pageTasks : PageTasks ) =
             RequestProperties.Headers 
                 [
                     ContentType "application/x-www-form-urlencoded"
-                    unbox EncType "application/x-www-form-urlencoded"
+                    //unbox EncType "application/x-www-form-urlencoded" 
                 ]
             RequestProperties.Body ( formData |> UriEncodeDict |> unbox )
+            //RequestProperties.Body ( formData |> EncodeDict |> unbox )
             RequestProperties.Credentials RequestCredentials.Include //otherwise our auth cookie is not sent
         ]
     async {
@@ -319,10 +354,10 @@ let batchLoad() =
         let suffixStart = t1.IndexOf("json")
         let t2 = t1.Substring(0, suffixStart - 1)
         let t3 = t2 + "-pretty.html#" + pt.PageId.ToString()
-        let t4 = Fable.Import.JS.encodeURIComponent t3
-        { pt with Source = t4}
+        //let t4 = Fable.Import.JS.encodeURIComponent t3
+        { pt with Source = t3}
     //iterate over tasks and update the appropriate url
-    for kvPair in tasks do
+    for kvPair in tasksFromFile do
         let rawPt = kvPair.Value
         let pageTasks = transformUrl rawPt
         PostTaskSet pageTasks
@@ -452,8 +487,16 @@ let update (msg:Msg) (model:Model)  =
         MarySpeak(text)
         model
     | NextTask ->
+        //a bit hacky, but idea here is to only get new page tasks when the 
+        //current task's url does not match the url of the page we are on
         let tasks = GetTaskSet model.url
-        //let tasks = GetPageTasks(model.url)
+
+            // if model.PageTasks.Source <> model.url then
+            //     GetTaskSet model.url //url has changed, get new tasks
+            // else
+            //     model.PageTasks //url has not changes, tasks still good 
+
+        //let tasks = GetPageTasks(model.url) //old way, static from file
         let nextTask =
             match model.TaskState with
             | Reading -> Gist
@@ -821,3 +864,5 @@ ReactDom.render(
 //webpack issues
 // need     "ajv":"^5.2.2" to handle "Module parse failed"
 // also update this in package.json of node_modules/har_validator and run npm install from there
+
+// /z/aolney/repos/marytts-5.2/bin/marytts-server
