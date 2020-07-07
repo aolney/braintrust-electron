@@ -19,7 +19,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "d3": "^3.5.17",
-    "electron": "^1.6.11",
+    "electron": "^9.1.0",
     "fable-core": "^0.6.7",
     "marytts": "git+https://github.com/aolney/marytts.git",
     "react": "~15.4.0",
